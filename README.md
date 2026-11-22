@@ -9,6 +9,20 @@ with an MLOps setup of MLflow tracking, versioned model files and Docker.
 > categorizer is also trained and externally tested on public dataset #1 (see [Data](#data-honest-statement)).
 > The numbers below are *not* real-world performance.
 
+## Screenshots
+
+| Sign in | Dashboard |
+|---|---|
+| ![Sign in](docs/screenshots/auth.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+| **Transactions** | **Subscriptions** |
+| ![Transactions](docs/screenshots/transactions.png) | ![Subscriptions](docs/screenshots/subscriptions.png) |
+| **Forecast and budget** | **Insights** |
+| ![Forecast](docs/screenshots/forecast.png) | ![Insights](docs/screenshots/insights.png) |
+
+The interface uses a passbook-inspired design: ink-blue and cheque-paper colours, a ruled "ledger strip" for key figures
+(green for money in, red for money out), and bundled open-source fonts (Bricolage Grotesque and IBM Plex Sans,
+SIL Open Font License, in `static/fonts/`), so it looks the same offline and in Docker.
+
 ## Features
 
 | Area | Feature | Type |
@@ -37,7 +51,8 @@ detector it gave the best CV F1 by a margin smaller than the noise, so a faster 
 
 ```
 finance-tracker/
-├── app.py                  # Streamlit app (7 pages, one function per page)
+├── app.py                  # Streamlit app: sign-in page + 7 pages, one function per page
+├── static/fonts/           # bundled fonts (OFL), served by Streamlit static serving
 ├── src/
 │   ├── data_prep.py        # public-data loaders, synthetic generator (HCES-calibrated), cleaning
 │   ├── features.py         # features for all 4 models - shared by training AND serving

@@ -18,7 +18,7 @@ import pandas as pd
 
 from src import features as F
 from src.data_prep import (DISCRETIONARY, ESSENTIALS, EXPENSE_CATEGORIES, NON_EXPENSE, RAW, ROOT,
-                           clean_transactions, import_bank_csv)
+                           clean_transactions, import_bank_csv, parse_dates)
 
 DB_PATH = Path(os.environ.get("FINANCE_DB", ROOT / "finance.db"))
 MODELS = ROOT / "models"
@@ -234,7 +234,7 @@ def import_csv(file, username, models, info):
         need = {"date", "description", "amount"}
         if not need <= set(cols):
             raise ValueError(f"CSV needs columns {sorted(need)} (optional: type). Found: {list(raw.columns)}")
-        df = pd.DataFrame({"date": pd.to_datetime(raw[cols["date"]], errors="coerce", dayfirst=True, format="mixed"),
+        df = pd.DataFrame({"date": parse_dates(raw[cols["date"]]),
                            "description": raw[cols["description"]].astype(str),
                            "amount": pd.to_numeric(raw[cols["amount"]], errors="coerce")})
         if "type" in cols:

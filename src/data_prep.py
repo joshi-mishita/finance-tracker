@@ -585,6 +585,14 @@ def clean_transactions(df, verbose=True):
 # --------------------------------------------------------------------------------------
 # 2.5 Optional: real bank statement import
 # --------------------------------------------------------------------------------------
+def parse_dates(col):
+    """ISO dates (2026-11-21) first; anything else is read day-first, as Indian bank exports use DD/MM/YYYY."""
+    col = col.astype(str).str.strip()
+    iso = pd.to_datetime(col, format="%Y-%m-%d", errors="coerce")
+    rest = pd.to_datetime(col[iso.isna()], dayfirst=True, format="mixed", errors="coerce")
+    return iso.fillna(rest)
+
+
 def import_bank_csv(path, date_col="Date", desc_col="Narration", debit_col="Withdrawal Amt.",
                     credit_col="Deposit Amt.", user_id="me"):
     """Map a net-banking CSV/Excel export into our schema. Column names are configurable."""
@@ -594,7 +602,7 @@ def import_bank_csv(path, date_col="Date", desc_col="Narration", debit_col="With
     credit = pd.to_numeric(raw[credit_col], errors="coerce").fillna(0)
     out = pd.DataFrame({
         "user_id": user_id,
-        "date": pd.to_datetime(raw[date_col], dayfirst=True, errors="coerce"),
+        "date": parse_dates(raw[date_col]),
         "description": raw[desc_col].astype(str),
         "amount": np.where(debit > 0, debit, credit),
         "type": np.where(debit > 0, "debit", "credit"),
