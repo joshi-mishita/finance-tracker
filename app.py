@@ -11,7 +11,7 @@ import streamlit as st
 from src import services as S
 from src.data_prep import ALL_CATEGORIES, EXPENSE_CATEGORIES, NON_EXPENSE
 
-st.set_page_config(page_title="Smart Finance Tracker", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Smart Finance Tracker", page_icon=":material/account_balance_wallet:", layout="wide")
 RESULTS = Path(__file__).parent / "results"
 MLFLOW_URL = os.environ.get("MLFLOW_UI_URL", "http://localhost:5000")
 PALETTE = px.colors.qualitative.Bold + px.colors.qualitative.Pastel
@@ -47,7 +47,7 @@ def header(title, subtitle=""):
 
 
 def empty_state(msg):
-    st.info(f"🗂️ {msg}")
+    st.info(msg)
 
 
 def fig_style(fig, h=340):
@@ -91,14 +91,14 @@ def page_dashboard(user, models, info):
 
     a, b, c3 = st.columns(3)
     with a:
-        st.markdown("**🏪 Top merchants (all time)**")
+        st.markdown("**Top merchants (all time)**")
         p = S.patterns(tx)
         if p:
             mt = p["merchants"].reset_index().rename(columns={"sum": "spent", "count": "txns"})
             mt["spent"] = mt["spent"].map(S.inr)
             st.dataframe(mt, hide_index=True, width="stretch")
     with b:
-        st.markdown("**📅 Upcoming bills (next 30 days)**")
+        st.markdown("**Upcoming bills (next 30 days)**")
         subs = S.get_subscriptions(user)
         if not subs.empty:
             subs["next_due_date"] = pd.to_datetime(subs["next_due_date"])
@@ -112,7 +112,7 @@ def page_dashboard(user, models, info):
         else:
             st.caption("Open the Subscriptions page to detect recurring payments.")
     with c3:
-        st.markdown("**🎯 Goals**")
+        st.markdown("**Goals**")
         goals = S.get_goals(user)
         for g in goals.itertuples():
             st.progress(min(g.saved_amount / g.target_amount, 1.0), text=f"{g.name}: {S.inr(g.saved_amount)} / {S.inr(g.target_amount)}")
@@ -126,7 +126,7 @@ def page_dashboard(user, models, info):
 
 def page_transactions(user, models, info):
     header("Transactions", "Auto-categorised with a confidence score - fix anything that looks wrong")
-    tab_list, tab_add, tab_csv = st.tabs(["📋 All transactions", "➕ Add transaction", "📤 Upload CSV"])
+    tab_list, tab_add, tab_csv = st.tabs(["All transactions", "Add transaction", "Upload CSV"])
     with tab_list:
         tx = S.load_transactions(user)
         if tx.empty:
@@ -151,16 +151,16 @@ def page_transactions(user, models, info):
                 v = v[v["needs_review"] == 1]
             v = v[(v["amount"] >= lo) & (v["amount"] <= hi)]
             n_rev = int(tx["needs_review"].sum())
-            st.markdown(f'<span class="badge badge-review">⚠ {n_rev} need review</span> &nbsp; '
+            st.markdown(f'<span class="badge badge-review">{n_rev} need review</span> &nbsp; '
                         f'<span class="muted">{len(v)} shown of {len(tx)}</span>', unsafe_allow_html=True)
             show = v[["id", "date", "description", "amount", "type", "category", "confidence", "needs_review", "source"]].copy()
-            show["status"] = show["needs_review"].map({1: "⚠️ Needs review", 0: "✓"})
+            show["status"] = show["needs_review"].map({1: "Needs review", 0: "OK"})
             show["date"] = show["date"].dt.date
             edited = st.data_editor(
                 show.drop(columns=["needs_review"]), hide_index=True, width="stretch", height=460,
                 disabled=["id", "date", "description", "amount", "type", "confidence", "source", "status"],
                 column_config={
-                    "category": st.column_config.SelectboxColumn("Category ✏️", options=ALL_CATEGORIES, required=True),
+                    "category": st.column_config.SelectboxColumn("Category (editable)", options=ALL_CATEGORIES, required=True),
                     "confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=1, format="%.2f"),
                     "amount": st.column_config.NumberColumn("Amount (₹)", format="%.2f"),
                     "id": None}, key=f"editor_{user}")
@@ -168,7 +168,7 @@ def page_transactions(user, models, info):
             if len(changed):
                 for r in changed.itertuples():
                     S.update_category(r.id, r.category)
-                st.toast(f"Saved {len(changed)} category correction(s) ✅")
+                st.toast(f"Saved {len(changed)} category correction(s).")
                 st.rerun()
     with tab_add:
         if "categorizer" not in models:
@@ -190,7 +190,7 @@ def page_transactions(user, models, info):
             row = pd.DataFrame([dict(date=when, description=desc, amount=amt, type=ttype, category=final,
                                      predicted_category=cat, confidence=conf, needs_review=int(review and final == cat))])
             S.insert_transactions(user, row, "manual")
-            st.toast("Transaction added ✅")
+            st.toast("Transaction added.")
     with tab_csv:
         st.caption("CSV with columns `date, description, amount` (optional `type`), or a bank export with "
                    "`Date, Narration, Withdrawal Amt., Deposit Amt.`. Everything is categorised automatically.")
@@ -222,11 +222,11 @@ def page_subscriptions(user, models, info):
     c[1].metric("Monthly recurring cost", S.inr(monthly))
     c[2].metric("Yearly recurring cost", S.inr(active["yearly_cost"].sum()))
     st.markdown("")
-    hdr = st.columns([2.2, 1.2, 1, 1.3, 1.3, 1, 1.6, 1.4])
+    hdr = st.columns([2.0, 1.1, 0.9, 1.2, 1.2, 0.9, 1.6, 2.0])
     for h, t in zip(hdr, ["Merchant", "Amount", "Every", "Next due", "Yearly cost", "Confidence", "Autopay", "Status"]):
         h.markdown(f"**{t}**")
     for r in subs.itertuples():
-        col = st.columns([2.2, 1.2, 1, 1.3, 1.3, 1, 1.6, 1.4])
+        col = st.columns([2.0, 1.1, 0.9, 1.2, 1.2, 0.9, 1.6, 2.0])
         col[0].markdown(f"{r.merchant}<br><span class='muted'>{r.category}</span>", unsafe_allow_html=True)
         col[1].write(S.inr(r.avg_amount))
         col[2].write(f"{r.frequency_days:.0f} days")
@@ -242,9 +242,9 @@ def page_subscriptions(user, models, info):
             col[7].markdown('<span class="badge badge-ok">Confirmed</span>', unsafe_allow_html=True)
         else:
             b1, b2 = col[7].columns(2)
-            if b1.button("✓", key=f"c_{r.id}", help="Confirm"):
+            if b1.button("Confirm", key=f"c_{r.id}", help="Confirm this is a recurring payment"):
                 S.set_subscription(r.id, status="confirmed"); st.rerun()
-            if b2.button("✕", key=f"d_{r.id}", help="Dismiss (not a subscription)"):
+            if b2.button("Dismiss", key=f"d_{r.id}", help="Not a subscription"):
                 S.set_subscription(r.id, status="dismissed", autopay=0); st.rerun()
 
 
@@ -260,7 +260,7 @@ def page_forecast(user, models, info):
     c[1].metric("Expected income", S.inr(sv["income"]))
     c[2].metric("Savings forecast", S.inr(sv["savings"]))
     c[3].metric("Planned investments", S.inr(sv["investments"]))
-    t1, t2 = st.tabs(["📈 Forecast", "🧾 Budget"])
+    t1, t2 = st.tabs(["Forecast", "Budget"])
     with t1:
         f = fc[fc["forecast"] > 0]
         fig = go.Figure(go.Bar(x=f["category"], y=f["forecast"], marker_color=[CAT_COLORS[c] for c in f["category"]],
@@ -279,16 +279,16 @@ def page_forecast(user, models, info):
         if rb.attrs["goal_need"] > 0:
             st.info(f"Your goals need about {S.inr(rb.attrs['goal_need'])}/month. "
                     + (f"Discretionary categories are cut by {rb.attrs['cut']:.0%} to close a gap of {S.inr(rb.attrs['shortfall'])}."
-                       if rb.attrs["cut"] > 0 else "Your forecast savings already cover that. 🎉"))
+                       if rb.attrs["cut"] > 0 else "Your forecast savings already cover that."))
         saved = S.get_budget(user)
         rb["my_budget"] = rb["category"].map(lambda c: saved.get(c)).fillna(rb["recommended"])
         ed = st.data_editor(rb, hide_index=True, width="stretch", disabled=["category", "forecast", "recommended", "reason"],
-                            column_config={"my_budget": st.column_config.NumberColumn("My budget ✏️ (₹)", min_value=0, step=500),
+                            column_config={"my_budget": st.column_config.NumberColumn("My budget (₹, editable)", min_value=0, step=500),
                                            "forecast": st.column_config.NumberColumn("Forecast (₹)", format="%d"),
                                            "recommended": st.column_config.NumberColumn("Recommended (₹)", format="%d")})
         if st.button("Save my budget", type="primary"):
             S.save_budget(user, dict(zip(ed["category"], ed["my_budget"].astype(float))))
-            st.toast("Budget saved ✅")
+            st.toast("Budget saved.")
         st.markdown("#### This month so far")
         tx = S.load_transactions(user)
         cur = tx[(tx["date"].dt.to_period("M") == pd.Timestamp(date.today()).to_period("M")) & (tx["type"] == "debit")]
@@ -298,12 +298,12 @@ def page_forecast(user, models, info):
             if b <= 0:
                 continue
             s = float(spent.get(cat, 0))
-            st.progress(min(s / b, 1.0), text=f"{cat}: {S.inr(s)} of {S.inr(b)}" + (" ⚠️ over budget" if s > b else ""))
+            st.progress(min(s / b, 1.0), text=f"{cat}: {S.inr(s)} of {S.inr(b)}" + (" - over budget" if s > b else ""))
 
 
 def page_goals(user, models, info):
     header("Goals", "Save for what matters - feasibility uses your forecast savings")
-    with st.expander("➕ New goal", expanded=S.get_goals(user).empty):
+    with st.expander("New goal", expanded=S.get_goals(user).empty):
         with st.form("goal"):
             c1, c2 = st.columns(2)
             name = c1.text_input("Goal name", "Emergency fund")
@@ -312,7 +312,7 @@ def page_goals(user, models, info):
             when = c2.date_input("Target date", date.today() + timedelta(days=365))
             if st.form_submit_button("Create goal", type="primary"):
                 S.add_goal(user, name, target, saved, when)
-                st.toast("Goal created 🎯")
+                st.toast("Goal created.")
                 st.rerun()
     goals = S.get_goals(user)
     if goals.empty:
@@ -349,7 +349,7 @@ def page_insights(user, models, info):
     else:
         c1, c2 = st.columns([1, 2])
         c1.markdown(f'<div class="card">Your spending persona<br><span class="persona">{per["name"]}</span>'
-                    f'<p>{per["description"]}</p><p>💡 <b>Tip:</b> {per["tip"]}</p></div>', unsafe_allow_html=True)
+                    f'<p>{per["description"]}</p><p><b>Tip:</b> {per["tip"]}</p></div>', unsafe_allow_html=True)
         shares = pd.DataFrame({"category": EXPENSE_CATEGORIES,
                                "You": [per["user"][f"share_{c}"] for c in EXPENSE_CATEGORIES],
                                f"Average {per['name']}": [per["avg"][f"share_{c}"] for c in EXPENSE_CATEGORIES]})
@@ -370,7 +370,7 @@ def page_insights(user, models, info):
     wt = S.weekend_test(tx)
     if wt:
         verdict = ("**is** statistically different" if wt["significant"] else "is **not** statistically different")
-        st.markdown(f'<div class="card">📊 <b>Hypothesis test</b> (Mann-Whitney U, two-sided, α = 0.05): your daily spend on '
+        st.markdown(f'<div class="card"><b>Hypothesis test</b> (Mann-Whitney U, two-sided, α = 0.05): your daily spend on '
                     f'weekends (median {S.inr(wt["weekend_median"])}, n={wt["n_weekend"]}) {verdict} from weekdays '
                     f'(median {S.inr(wt["weekday_median"])}, n={wt["n_weekday"]}); p = {wt["p_value"]:.4f}.</div>',
                     unsafe_allow_html=True)
@@ -387,7 +387,7 @@ def page_insights(user, models, info):
                      color_discrete_sequence=["#F59E0B"])
         fig.update_xaxes(tickformat="+.0%")
         b.plotly_chart(fig_style(fig), width="stretch")
-    st.markdown("#### 🚨 Unusual transactions (last 3 months)")
+    st.markdown("#### Unusual transactions (last 3 months)")
     un = S.unusual_transactions(tx)
     if un.empty:
         st.caption("Nothing unusual - no payment above Q3 + 3×IQR of your own history for its category.")
@@ -401,7 +401,7 @@ def page_admin(user, models, info):
     header("Admin / Models", "Active model versions and their test metrics (from the last training run)")
     if not info:
         return empty_state("No models registered. Run `python -m src.data_prep` and `python -m src.train`.")
-    st.markdown(f"🔬 Experiment tracking: [open MLflow UI]({MLFLOW_URL}) (start with `mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db`)")
+    st.markdown(f"Experiment tracking: [open MLflow UI]({MLFLOW_URL}) (start with `mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db`)")
     st.caption("All metrics are measured on synthetic data generated by this project - not real-world performance.")
     figs = {"categorizer": ["categorizer_confusion_matrix.png", "categorizer_per_class_f1.png", "categorizer_confidence_curve.png"],
             "subscription": ["subscription_confusion_matrix.png", "subscription_roc_pr.png", "subscription_shap.png"],
@@ -440,45 +440,116 @@ def page_admin(user, models, info):
             st.caption(f"File: models/{e['file']} • git commit {e.get('git_commit', '?')}")
 
 
+# ====================================================================================== authentication
+AUTH_CSS = """
+<style>
+section[data-testid="stSidebar"], div[data-testid="collapsedControl"] {display: none;}
+.block-container {max-width: 1100px; padding-top: 3rem;}
+.auth-brand {font-size: 2rem; font-weight: 800; color: #1F2937; margin-bottom: .2rem; letter-spacing: -.02em;}
+.auth-brand span {color: #4F46E5;}
+.auth-lead {color: #4B5563; font-size: 1.05rem; line-height: 1.6; margin-bottom: 1.4rem;}
+.auth-point {display: flex; gap: .7rem; margin: .7rem 0; color: #374151;}
+.auth-point b {color: #111827;}
+.auth-dot {width: 8px; height: 8px; border-radius: 50%; background: #4F46E5; margin-top: .5rem; flex: none;}
+.auth-foot {color: #9CA3AF; font-size: .8rem; margin-top: 1rem;}
+div[data-testid="stForm"] {background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 16px; padding: 1.4rem 1.4rem .6rem;
+                           box-shadow: 0 10px 30px rgba(17,24,39,.06);}
+</style>"""
+
+
+def sign_in(username):
+    st.session_state["user"] = username
+    st.session_state.pop("page", None)
+
+
+def page_auth():
+    st.markdown(AUTH_CSS, unsafe_allow_html=True)
+    left, gap, right = st.columns([1.15, 0.15, 1])
+    with left:
+        st.markdown('<div class="auth-brand">Smart <span>Finance</span> Tracker</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-lead">Understand where your money goes. Transactions are categorised automatically, '
+                    'recurring payments are detected, and next month\'s spending is forecast from your own history.</div>',
+                    unsafe_allow_html=True)
+        for title, text in [("Automatic categorisation", "Every transaction gets a category and a confidence score."),
+                            ("Subscriptions", "Recurring payments and upcoming bills in one place."),
+                            ("Forecast and budget", "Next-month spending per category with a recommended budget."),
+                            ("Insights", "Your spending persona, patterns and unusual transactions.")]:
+            st.markdown(f'<div class="auth-point"><div class="auth-dot"></div><div><b>{title}.</b> {text}</div></div>',
+                        unsafe_allow_html=True)
+    with right:
+        tab_in, tab_up = st.tabs(["Sign in", "Create account"])
+        with tab_in:
+            with st.form("signin_form", clear_on_submit=False):
+                st.markdown("##### Welcome back")
+                username = st.text_input("Username", key="si_username", autocomplete="username")
+                password = st.text_input("Password", type="password", key="si_password", autocomplete="current-password")
+                submitted = st.form_submit_button("Sign in", type="primary", width="stretch", key="si_submit")
+            if submitted:
+                ok, msg = S.authenticate(username, password)
+                if ok:
+                    sign_in(username.strip().lower())
+                    st.rerun()
+                st.error(msg)
+        with tab_up:
+            with st.form("signup_form", clear_on_submit=False):
+                st.markdown("##### Create your account")
+                full_name = st.text_input("Full name", key="su_name", autocomplete="name")
+                username = st.text_input("Username", key="su_username", autocomplete="username",
+                                         help="3-20 characters: lowercase letters, numbers, '.' or '_'")
+                income = st.number_input("Monthly income (₹)", min_value=0.0, value=50000.0, step=5000.0, key="su_income")
+                c1, c2 = st.columns(2)
+                password = c1.text_input("Password", type="password", key="su_password", autocomplete="new-password",
+                                         help=f"At least {S.MIN_PASSWORD} characters, with a letter and a number")
+                confirm = c2.text_input("Confirm password", type="password", key="su_confirm", autocomplete="new-password")
+                submitted = st.form_submit_button("Create account", type="primary", width="stretch", key="su_submit")
+            if submitted:
+                username = username.strip().lower()
+                problems = S.validate_signup(username, full_name, password, confirm)
+                if problems:
+                    for p in problems:
+                        st.error(p)
+                else:
+                    S.register_user(username, full_name, password, income)
+                    sign_in(username)
+                    st.rerun()
+        st.markdown('<div class="auth-foot">Passwords are stored as salted PBKDF2-SHA256 hashes in a local SQLite database. '
+                    'This is a student project: do not upload real bank statements on a shared machine.</div>',
+                    unsafe_allow_html=True)
+
+
 # ====================================================================================== sidebar / routing
+PAGES = {"Dashboard": page_dashboard, "Transactions": page_transactions, "Subscriptions": page_subscriptions,
+         "Forecast & Budget": page_forecast, "Goals": page_goals, "Insights": page_insights,
+         "Admin / Models": page_admin}
+
+
 def main():
     S.init_db()
     models, info = get_models()
-    with st.sidebar:
-        st.markdown("## 💰 Smart Finance")
-        username = st.text_input("Username", key="username", placeholder="type a username").strip().lower()
-        if not username:
-            st.caption("No password needed - this is a demo login.")
-        user = S.get_user(username) if username else None
-        if username and not user:
-            inc = st.number_input("Monthly income (₹)", min_value=0.0, value=50000.0, step=5000.0)
-            if st.button("Create account", type="primary"):
-                S.create_user(username, inc)
-                st.rerun()
-        if user:
-            st.success(f"Signed in as **{username}**")
-            if st.button("📦 Load demo data", help="Replaces your data with 24 months of a generated user's history"):
-                with st.spinner("Loading and categorising demo history..."):
-                    try:
-                        n = S.load_demo(username, models, info)
-                        st.toast(f"Loaded {n} demo transactions ✅")
-                    except Exception as e:
-                        st.error(str(e))
-            st.divider()
-            page = st.radio("Navigate", ["🏠 Dashboard", "💳 Transactions", "🔁 Subscriptions", "📈 Forecast & Budget",
-                                         "🎯 Goals", "🧠 Insights", "⚙️ Admin / Models"], label_visibility="collapsed")
-        else:
-            page = None
-        if not models:
-            st.warning("Models not found. Run `python -m src.data_prep && python -m src.train`.")
+    username = st.session_state.get("user")
+    user = S.get_user(username) if username else None
     if not user:
-        header("Smart Finance Tracker", "ML-powered expense categorisation, subscription detection, forecasting and personas")
-        st.markdown("👈 **Type a username in the sidebar to start.** New users are created automatically.")
-        return
-    pages = {"🏠 Dashboard": page_dashboard, "💳 Transactions": page_transactions, "🔁 Subscriptions": page_subscriptions,
-             "📈 Forecast & Budget": page_forecast, "🎯 Goals": page_goals, "🧠 Insights": page_insights,
-             "⚙️ Admin / Models": page_admin}
-    pages[page](username, models, info)
+        st.session_state.pop("user", None)
+        return page_auth()
+    with st.sidebar:
+        st.markdown("### Smart Finance Tracker")
+        st.caption(f"Signed in as **{user.get('full_name') or username}** (@{username})")
+        page = st.radio("Navigate", list(PAGES), key="page", label_visibility="collapsed")
+        st.divider()
+        if st.button("Load demo data", width="stretch",
+                     help="Replaces your data with 24 months of a generated user's history"):
+            with st.spinner("Loading and categorising demo history..."):
+                try:
+                    n = S.load_demo(username, models, info)
+                    st.toast(f"Loaded {n} demo transactions.")
+                except Exception as e:
+                    st.error(str(e))
+        if st.button("Sign out", width="stretch"):
+            st.session_state.clear()
+            st.rerun()
+        if not models:
+            st.warning("Models not found. Run `python -m src.data_prep` and `python -m src.train`.")
+    PAGES[page](username, models, info)
 
 
 main()

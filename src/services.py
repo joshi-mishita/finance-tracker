@@ -2,8 +2,12 @@
 
 All feature code comes from src/features.py, so serving uses exactly the same transformations as training.
 """
+import hashlib
+import hmac
 import json
 import os
+import re
+import secrets
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -38,7 +42,8 @@ def inr(x, decimals=0):
 
 # ====================================================================================== database
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, monthly_income REAL, created_at TEXT, budget_json TEXT);
+CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, monthly_income REAL, created_at TEXT, budget_json TEXT,
+    full_name TEXT, password_hash TEXT, salt TEXT);
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, date TEXT, description TEXT, amount REAL, type TEXT,
     category TEXT, predicted_category TEXT, confidence REAL, needs_review INTEGER, user_corrected INTEGER DEFAULT 0,
@@ -63,6 +68,10 @@ def conn():
 def init_db():
     with conn() as c:
         c.executescript(SCHEMA)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(users)")}
+        for col in ("full_name", "password_hash", "salt"):  # migrate databases created before passwords existed
+            if col not in cols:
+                c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
 
 
 def get_user(username):
@@ -71,10 +80,51 @@ def get_user(username):
     return dict(r) if r else None
 
 
-def create_user(username, income):
+# ---------------------------------------------------------------- authentication
+USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,20}$")
+MIN_PASSWORD = 8
+_PBKDF2_ROUNDS = 200_000
+
+
+def _hash_password(password, salt_hex):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), _PBKDF2_ROUNDS).hex()
+
+
+def validate_signup(username, full_name, password, confirm):
+    """Returns a list of problems (empty list = valid)."""
+    problems = []
+    if not full_name.strip():
+        problems.append("Please enter your name.")
+    if not USERNAME_RE.match(username):
+        problems.append("Username must be 3-20 characters: lowercase letters, numbers, '.' or '_'.")
+    elif get_user(username):
+        problems.append("That username is already taken.")
+    if len(password) < MIN_PASSWORD:
+        problems.append(f"Password must be at least {MIN_PASSWORD} characters.")
+    elif not (re.search(r"[A-Za-z]", password) and re.search(r"\d", password)):
+        problems.append("Password must contain at least one letter and one number.")
+    if password != confirm:
+        problems.append("Passwords do not match.")
+    return problems
+
+
+def register_user(username, full_name, password, income):
+    """Create an account. Passwords are stored only as salted PBKDF2-SHA256 hashes."""
+    salt = secrets.token_hex(16)
     with conn() as c:
-        c.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,?)",
-                  (username, float(income), datetime.now().isoformat(timespec="seconds"), None))
+        c.execute("INSERT INTO users (username, monthly_income, created_at, budget_json, full_name, password_hash, salt) "
+                  "VALUES (?,?,?,?,?,?,?)",
+                  (username, float(income), datetime.now().isoformat(timespec="seconds"), None, full_name.strip(),
+                   _hash_password(password, salt), salt))
+
+
+def authenticate(username, password):
+    """Returns (ok, message). The same message is used for unknown user and wrong password."""
+    u = get_user(username.strip().lower())
+    if not u or not u.get("password_hash"):
+        return False, "Incorrect username or password."
+    ok = hmac.compare_digest(_hash_password(password, u["salt"]), u["password_hash"])
+    return (True, "") if ok else (False, "Incorrect username or password.")
 
 
 def update_income(username, income):
@@ -217,7 +267,6 @@ def load_demo(username, models, info):
     insert_transactions(username, out, "csv")
     users = pd.read_csv(RAW / "users.csv")
     income = float(users.loc[users["user_id"] == DEMO_USER_ID, "monthly_income"].iat[0])
-    create_user(username, income)
     update_income(username, income)
     return len(out)
 
@@ -383,14 +432,14 @@ def get_goals(username):
 def goal_feasibility(target, saved, monthly_savings, target_date):
     left = max(target - saved, 0)
     if left == 0:
-        return "Goal reached 🎉", True
+        return "Goal reached.", True
     if monthly_savings <= 0:
         return "Your predicted savings are ≤ ₹0 next month, so this goal is not reachable yet. See the budget page.", False
     months = int(np.ceil(left / monthly_savings))
     deadline = max((pd.Timestamp(target_date) - pd.Timestamp(date.today())).days / 30.4, 0)
     ok = months <= deadline
     msg = (f"At your predicted savings of {inr(monthly_savings)}/month you will reach this in {months} month"
-           f"{'s' if months != 1 else ''} - {'on track ✅' if ok else 'later than your target date ⚠️'}")
+           f"{'s' if months != 1 else ''} - {'on track.' if ok else 'later than your target date.'}")
     return msg, ok
 
 
