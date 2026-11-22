@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - MLFLOW_UI_URL=http://localhost:5000
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./mlruns:/app/mlruns
+      - ./db:/app/db          # SQLite file lives here so data survives restarts
+
+  mlflow:
+    build: .
+    working_dir: /app
+    command: mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/app/mlruns
+
+# One-shot training (run once before `docker compose up`):
+#   docker compose run --rm app python -m src.data_prep && docker compose run --rm app python -m src.train

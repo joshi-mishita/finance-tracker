@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.ipynb_checkpoints
+mlruns
+models
+data/raw/*
+data/processed/*
+db
+finance.db
+*.db
+*statement*
+personal
+.env

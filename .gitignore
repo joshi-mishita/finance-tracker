@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Data, models and runs are reproducible from code (python -m src.data_prep && python -m src.train)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+models/*
+!models/.gitkeep
+mlruns/
+mlartifacts/
+finance.db
+*.db
+
+# Personal bank statements: never commit
+*statement*.csv
+*statement*.xlsx
+personal/
+
+.DS_Store
+.env
