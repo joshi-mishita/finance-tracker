@@ -16,7 +16,7 @@ data/processed/*
 !data/processed/.gitkeep
 models/*
 !models/.gitkeep
-mlruns/
+mlruns*/
 mlartifacts/
 finance.db
 *.db

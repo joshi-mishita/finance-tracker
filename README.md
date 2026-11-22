@@ -14,10 +14,12 @@ with an MLOps setup of MLflow tracking, versioned model files and Docker.
 | Sign in | Overview |
 |---|---|
 | ![Sign in](docs/screenshots/auth.png) | ![Overview](docs/screenshots/dashboard.png) |
-| **Goals and budgets** | **Rewards** |
-| ![Goals](docs/screenshots/goals.png) | ![Rewards](docs/screenshots/rewards.png) |
-| **Transactions** | **Forecast** |
-| ![Transactions](docs/screenshots/transactions.png) | ![Forecast](docs/screenshots/forecast.png) |
+| **Transactions** | **Subscriptions** |
+| ![Transactions](docs/screenshots/transactions.png) | ![Subscriptions](docs/screenshots/subscriptions.png) |
+| **Forecast** | **Goals and budgets** |
+| ![Forecast](docs/screenshots/forecast.png) | ![Goals](docs/screenshots/goals.png) |
+| **Rewards** | **Insights** |
+| ![Rewards](docs/screenshots/rewards.png) | ![Insights](docs/screenshots/insights.png) |
 
 The interface is a dark, gamified design: neon lime with pink, cyan, purple and yellow accents, a lime hero card,
 segmented progress rings and a level card in the sidebar. Fonts are bundled (Archivo Black for titles, Poppins for text
@@ -35,7 +37,7 @@ A product landing page for the project lives in [`docs/index.html`](docs/index.h
 
 | Area | Feature | Type |
 |---|---|---|
-| Transactions | Auto-categorisation with confidence + "Needs review" badge | **ML** - text classification (TF-IDF + Logistic Regression) |
+| Transactions | Auto-categorisation with confidence + "Needs review" badge | **ML** - text classification (TF-IDF + calibrated Linear SVM) |
 | | Inline category correction saved to SQLite (kept as future training feedback) | Non-ML |
 | | Subscription / recurring-payment detection | **ML** - binary classification (XGBoost) |
 | | Autopay for subscriptions (**simulated**, no money moves) | Non-ML |
@@ -144,7 +146,7 @@ rent, while a renting household typically pays 15-28% of income. Groceries are c
 * Light tuning with `RandomizedSearchCV` (≤ 10 iterations). Fixed `SEED = 42` everywhere.
 * **Quality gate:** `model_info.json` is updated only if the winner beats its baseline.
 
-## Results (from the last `python -m src.train` run)
+## Results (from the last `python -m src.train` run, inside Docker)
 
 ### 1. Auto-categorisation - primary metric macro F1 (stratified 5-fold CV on 19,506 training rows = 19,200 synthetic + 306 from public dataset #1)
 
@@ -155,26 +157,26 @@ rent, while a renting household typically pays 15-28% of income. Groceries are c
 | NaiveBayes + SMOTE | 0.9595 | 0.0032 | 0.9541 |
 | LogReg | 0.9732 | 0.0018 | 0.9633 |
 | LogReg + balanced | 0.9597 | 0.0032 | 0.9583 |
-| LogReg + SMOTE | 0.9610 | 0.0021 | 0.9587 |
+| LogReg + SMOTE | 0.9615 | 0.0024 | 0.9590 |
 | LinearSVM(cal) | 0.9729 | 0.0019 | 0.9623 |
 | LinearSVM(cal) + balanced | 0.9710 | 0.0018 | 0.9614 |
 | LinearSVM(cal) + SMOTE | 0.9622 | 0.0022 | 0.9588 |
-| RandomForest + balanced | 0.9638 | 0.0015 | 0.9605 |
+| RandomForest + balanced | 0.9637 | 0.0016 | 0.9604 |
 | LightGBM + balanced | 0.9664 | 0.0018 | 0.9614 |
 
-**Winner: LogReg** (tuned; LinearSVM was within noise and slower).
+**Winner: calibrated Linear SVM** (tuned). Logistic Regression had a marginally higher CV score (0.9732 vs 0.9729), but the gap is far inside one standard deviation, so the "within noise, prefer faster" rule picked the SVM.
 
 | Test set | Rows | Macro F1 | Accuracy |
 |---|---|---|---|
 | Synthetic test split | 4,800 | **0.976** | 0.967 |
 | Majority-class baseline (same split) | 4,800 | 0.020 | 0.178 |
 | **External: public dataset #1, merchants seen in training** | 307 | 1.000 | 1.000 |
-| **External: public dataset #1, merchants never seen** (13 held-out merchants) | 232 | **0.535** | 0.461 |
-| Same unseen rows, model trained on synthetic data only | 232 | 0.525 | 0.422 |
-| Synthetic, merchants never seen (diagnostic split by merchant) | - | 0.337 | - |
+| **External: public dataset #1, merchants never seen** (13 held-out merchants) | 232 | **0.540** | 0.435 |
+| Same unseen rows, model trained on synthetic data only | 232 | 0.534 | 0.427 |
+| Synthetic, merchants never seen (diagnostic split by merchant) | - | 0.414 | - |
 
-**How to read this:** known merchants are solved almost perfectly; **new merchants are the real difficulty (macro F1 ≈ 0.5)**. Some held-out names share a brand word with known merchants ("Ola Cab", "IRCTC Ticket"), which helps. Others ("Eye Checkup", "Pathology Lab", "Nike Store") are genuinely new. Adding dataset #1's rows to training helps only slightly on unseen merchants (+0.01). This is why the app has a *Needs review* flag and stores user corrections.
-Confidence threshold **0.65**, chosen on a validation split of *unseen merchants* drawn from the training data (test data untouched). It is the most accurate threshold that still auto-accepts ≥25% of new-merchant rows (~81% correct when accepted; curve in `results/categorizer_threshold_curve.csv`). Known merchants are almost always above it (~5% of the demo user's rows are flagged), so *Needs review* mainly catches new and ambiguous payments.
+**How to read this:** known merchants are solved almost perfectly; **new merchants are the real difficulty (macro F1 ≈ 0.5)**. Some held-out names share a brand word with known merchants ("Ola Cab", "IRCTC Ticket"), which helps; others ("Eye Checkup", "Pathology Lab", "Nike Store") are genuinely new. Adding dataset #1's rows to training helps only slightly on unseen merchants. This is why the app has a *Needs review* flag and stores user corrections.
+Confidence threshold **0.75**, chosen on a validation split of *unseen merchants* drawn from the training data (test data untouched): the most accurate threshold that still auto-accepts ≥25% of new-merchant rows (it accepts 44%, of which 78% are correct; curve in `results/categorizer_threshold_curve.csv`). Known merchants are almost always above it, so *Needs review* mainly catches new and ambiguous payments.
 SMOTE and class weights both *lowered* macro F1 here: even the smallest class has a few hundred distinctive training examples, so oversampling mainly adds interpolated noise to the sparse TF-IDF space.
 
 ### 2. Subscription detection - primary metric F1 (positive class), CV grouped by user
@@ -194,7 +196,7 @@ SMOTE and class weights both *lowered* macro F1 here: even the smallest class ha
 | XGBoost + scale_pos_weight | 0.9928 | 0.0025 | 0.9998 |
 | XGBoost + SMOTE | 0.9941 | 0.0031 | 0.9997 |
 
-**Winner: XGBoost + scale_pos_weight** (tuned). XGBoost + SMOTE had the highest CV F1 (0.9941, the only module where SMOTE came out on top), but scale_pos_weight was within one standard deviation and faster, so the "within noise, prefer faster" rule chose it. **Test:** F1 **0.991**, precision 0.989, recall 0.992, ROC-AUC 0.9996, PR-AUC 0.9980 vs rule baseline F1 0.410 (precision 0.808, recall 0.275).
+**Winner: XGBoost** (tuned). XGBoost + SMOTE had the highest CV F1 (0.9941), but plain XGBoost was within one standard deviation and faster, so the "within noise, prefer faster" rule chose it. **Test:** F1 **0.992**, precision 1.000, recall 0.984, ROC-AUC 0.9997, PR-AUC 0.9983 vs rule baseline F1 0.410 (precision 0.808, recall 0.275).
 **Note:** the first version scored F1 0.994. Following the project rule *"if it looks too good, investigate"*, harder cases were added (fixed-price but irregular LPG/wallet top-ups, postpaid bills with varying amounts, house-help salary to a person mixed with random P2P payments, missed months, newly started subscriptions). That dropped the rule baseline to 0.40 and logistic regression to 0.95, but tree models still separate the classes almost perfectly, because on generated data the label is almost a deterministic function of "regular gaps + fixed amount". None of the public datasets has per-user recurring labels, so this module can only be checked on synthetic data. **Treat it as an upper bound.**
 
 ### 3. Next-month forecast - primary metric RMSE (₹), chronological split
@@ -206,12 +208,12 @@ SMOTE and class weights both *lowered* macro F1 here: even the smallest class ha
 | Ridge | 3900 | 1095 | 0.748 |
 | RandomForest | 3813 | 959 | 0.759 |
 | GradientBoosting | 3899 | 967 | 0.748 |
-| XGBoost | 3896 | 992 | 0.749 |
+| XGBoost | 3897 | 993 | 0.748 |
 | LightGBM | 3822 | 978 | 0.758 |
 | LightGBM (tuned) | 3804 | - | - |
 
-**Winner: LightGBM** (tuned). **Test (last 3 months):** RMSE **₹3,918**, MAE ₹986, R² 0.750 vs 3-month-mean baseline RMSE ₹4,461 (R² 0.675; the last-month baseline is worse, ₹5,394), so **12% lower RMSE than the best baseline**.
-Honest caveat: sMAPE is *worse* than the baselines (25.7% vs 22.0% on non-zero months), because the model is better on the big amounts that RMSE weights but slightly worse in relative terms on small ones. The largest errors are in lumpy categories (Travel, Health, Shopping). Forecast range = prediction + 10th/90th percentile of validation residuals (stored in `model_info.json`).
+**Winner: LightGBM** (tuned; within 1% of Random Forest and far faster). **Test (last 3 months):** RMSE **₹3,918**, MAE ₹986, R² 0.750 vs 3-month-mean baseline RMSE ₹4,461 (R² 0.675; the last-month baseline is worse), so **12% lower RMSE than the best baseline**.
+Honest caveat: sMAPE is *worse* than the baseline (25.7% vs 22.0% on non-zero months), because the model is better on the big amounts that RMSE weights but slightly worse in relative terms on small ones. The largest errors are in lumpy categories (Travel, Health, Shopping). Forecast range = prediction + 10th/90th percentile of validation residuals (stored in `model_info.json`).
 
 ### 4. Spending persona - primary metric silhouette
 
@@ -224,7 +226,7 @@ Honest caveat: sMAPE is *worse* than the baselines (25.7% vs 22.0% on non-zero m
 | Agglomerative(Ward) | 5 | 0.160 | 1.863 | 10.4% | 0.681 |
 | KMeans | 4 | 0.159 | 1.808 | 18.3% | 0.591 |
 
-**Winner: KMeans (k=5)**, the highest silhouette with no tiny cluster. Held-out users: silhouette 0.170, ARI vs hidden archetypes 0.600 (reporting only, never used for training). Silhouette ≈ 0.18 shows that spending styles overlap rather than form crisp groups, which is expected for people (public dataset #3 shows the same: spend mixes differ in only one or two categories between groups).
+**Winner: K-Means (k=5)**, the highest silhouette with no tiny cluster. Held-out users: silhouette 0.170, ARI vs hidden archetypes 0.600 (reporting only, never used for training). Silhouette ≈ 0.17 shows that spending styles overlap rather than form crisp groups, which is expected for people (public dataset #3 shows the same).
 Personas (named automatically from cluster profiles): Debt-Heavy, Saver, Lifestyle Spender, Student / Early Career, Family Budgeter.
 
 Full tables: `results/summary.md` and `results/model_comparison_*.csv`. Plots: `results/*.png`.
