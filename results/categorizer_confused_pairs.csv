@@ -1,11 +1,11 @@
 true,predicted,count
-Groceries,Food & Dining,20
-Health,Food & Dining,16
-Personal Care,Food & Dining,11
-Transport,Food & Dining,11
-Food & Dining,Groceries,10
-Transport,Groceries,10
-Entertainment,Food & Dining,8
+Groceries,Food & Dining,19
+Health,Food & Dining,15
+Transport,Food & Dining,10
+Food & Dining,Groceries,9
+Personal Care,Food & Dining,9
 Groceries,Others,8
-Others,Food & Dining,8
-Travel,Food & Dining,7
+Entertainment,Food & Dining,7
+Others,Food & Dining,7
+Transport,Groceries,7
+Transport,Others,7
