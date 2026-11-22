@@ -789,36 +789,58 @@ def page_auth(models, info):
                     unsafe_allow_html=True)
 
 
-# ====================================================================================== sidebar / routing
-PAGES = {"Dashboard": page_dashboard, "Transactions": page_transactions, "Subscriptions": page_subscriptions,
-         "Forecast and budget": page_forecast, "Goals": page_goals, "Insights": page_insights, "Models": page_admin}
+# ====================================================================================== top navigation / routing
+NAV_CSS = f"""
+<style>
+section[data-testid="stSidebar"], button[data-testid="stExpandSidebarButton"] {{display: none;}}
+header[data-testid="stHeader"] {{background: rgba(255,255,255,.92) !important; backdrop-filter: saturate(160%) blur(8px);
+     border-bottom: 1px solid {RULE}; height: 3.6rem;}}
+header[data-testid="stHeader"] a, header[data-testid="stHeader"] button p {{font-weight: 500;}}
+header a[aria-current="page"], header a[aria-current="page"]:hover {{background: transparent !important; color: {INK} !important;
+     box-shadow: inset 0 -2px 0 {MARIGOLD}; border-radius: 0 !important;}}
+header a[aria-current="page"] p, header a[aria-current="page"] span {{font-weight: 650 !important; color: {INK} !important;}}
+header a {{color: #3D4A5E !important;}}
+.block-container {{padding-top: 4.6rem;}}
+div[class*="st-key-usermenu"] {{position: fixed; top: .55rem; right: 1.4rem; z-index: 999991; width: auto !important;}}
+div[class*="st-key-usermenu"] button {{border-radius: 999px; border: 1px solid {RULE}; background: #FFFFFF;}}
+</style>"""
+
+PAGES = [("Dashboard", "dashboard", page_dashboard), ("Transactions", "transactions", page_transactions),
+         ("Subscriptions", "subscriptions", page_subscriptions), ("Forecast", "forecast", page_forecast),
+         ("Goals", "goals", page_goals), ("Insights", "insights", page_insights), ("Models", "models", page_admin)]
+
+
+def user_menu(username, user, models, info):
+    with st.container(key="usermenu"):
+        name = user.get("full_name") or username
+        with st.popover(name, width="content"):
+            st.markdown(f'<div class="sec" style="font-size:1rem">{esc(name)}</div><div class="sec-note">@{esc(username)}</div>',
+                        unsafe_allow_html=True)
+            if st.button("Load demo data", width="stretch", help="Replaces your data with a generated 24-month history"):
+                load_demo(username, models, info)
+            if st.button("Sign out", width="stretch", type="primary"):
+                st.session_state.clear()
+                st.rerun()
 
 
 def main():
     _PANELS[0] = 0
     S.init_db()
     models, info = get_models()
+    st.logo("static/logo.svg", size="large")
     username = st.session_state.get("user")
     user = S.get_user(username) if username else None
     if not user:
         st.session_state.pop("user", None)
         return page_auth(models, info)
-    with st.sidebar:
-        st.markdown('<div class="brand"><div class="mark">S</div><div class="word">Smart Finance Tracker</div></div>'
-                    f'<div class="who"><b>{esc(user.get("full_name") or username)}</b><span>@{esc(username)}</span></div>',
-                    unsafe_allow_html=True)
-        page = st.radio("Navigate", list(PAGES), key="page", label_visibility="collapsed")
-        st.divider()
-        if st.button("Load demo data", width="stretch", help="Replaces your data with 24 months of a generated user's history"):
-            load_demo(username, models, info)
-        if st.button("Sign out", width="stretch"):
-            st.session_state.clear()
-            st.rerun()
-        st.markdown('<div class="side-note">Demo data replaces everything in this account with a generated '
-                    'two-year history.</div>', unsafe_allow_html=True)
-        if not models:
-            st.warning("Models not found. Run python -m src.data_prep and python -m src.train.")
-    PAGES[page](username, models, info)
+    st.markdown(NAV_CSS, unsafe_allow_html=True)
+    pages = [st.Page(lambda f=f: f(username, models, info), title=t, url_path=u, default=(i == 0))
+             for i, (t, u, f) in enumerate(PAGES)]
+    nav = st.navigation(pages, position="top")
+    user_menu(username, user, models, info)
+    if not models:
+        st.warning("Models not found. Run python -m src.data_prep and python -m src.train.")
+    nav.run()
 
 
 main()

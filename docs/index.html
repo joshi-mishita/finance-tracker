@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Finance Tracker</title>
+<meta name="description" content="An ML-powered personal finance tracker for Indian bank statements: automatic categorisation, subscription detection, spending forecasts and personas.">
+<style>
+/* VOICE: a confident product launch page, specific and honest about what the models do.
+   IDEA: the bank passbook. Statement narrations go in, a ruled, categorised ledger comes out.
+   PICTURE: the real app, framed like a browser window, plus a live passbook strip that files each narration.
+   COLOUR and TYPE: the app's own system. Ink blue, cheque paper, one marigold accent, green in / red out.
+   LAYOUT: Framer-style product page. Hero, three points, alternating feature bands, metrics, stack, run it, footer. */
+@font-face{font-family:"Bricolage Grotesque";src:url("fonts/BricolageGrotesque.woff2") format("woff2");font-weight:200 800;font-display:swap}
+@font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans.woff2") format("woff2");font-weight:100 700;font-display:swap}
+:root{color-scheme:light dark;
+  --ink:#16233F;--ink2:#0F1A31;--marigold:#E6A23C;--credit:#1E7B5A;--debit:#B9432F;
+  --bg:light-dark(#F2F5F0,#0E182C);--panel:light-dark(#FFFFFF,#16233F);--text:light-dark(#1B2433,#E4E9F1);
+  --muted:light-dark(#5B6576,#9DAAC0);--rule:light-dark(#DCE2D9,#26344F)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 "IBM Plex Sans",system-ui,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;letter-spacing:-.02em;line-height:1.05;text-wrap:balance;margin:0}
+a{color:inherit}
+img{display:block;max-width:100%;height:auto}
+.wrap{max-width:1200px;margin:0 auto;padding:0 max(5vw,16px)}
+.band{padding:clamp(56px,8vw,112px) 0}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ink2) 88%,transparent);backdrop-filter:blur(10px) saturate(150%);border-bottom:1px solid rgba(255,255,255,.08)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:#fff;font:700 17px "Bricolage Grotesque",sans-serif;white-space:nowrap}
+.mark{width:28px;height:28px;border-radius:7px;background:var(--marigold);display:grid;place-items:center;color:var(--ink);font-weight:800;font-size:15px}
+.links{display:flex;gap:22px}
+.nav .btn{margin-left:auto}
+.links a{color:#B8C4D6;text-decoration:none;font-size:15px}.links a:hover{color:#fff}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--marigold);color:var(--ink)}.btn.primary:hover{background:#F0B455}
+.btn.ghost{color:#fff;border-color:rgba(255,255,255,.25)}.btn.ghost:hover{border-color:#fff}
+.btn.dark{background:var(--ink);color:#fff}
+a:focus-visible,.btn:focus-visible,button:focus-visible{outline:2px solid var(--marigold);outline-offset:3px}
+
+/* hero */
+.hero{background:var(--ink2);color:#E4E9F1;padding:clamp(56px,8vw,96px) 0 0;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:auto -10% -40% -10%;height:70%;background:radial-gradient(60% 60% at 50% 0%,rgba(230,162,60,.18),transparent 70%);pointer-events:none}
+.hero-top{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(28px,5vw,64px);align-items:center}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#DCE3EE;font-size:14px;text-decoration:none;margin-bottom:22px}
+.pill b{color:var(--marigold);font-weight:600}
+.hero h1{font-size:clamp(40px,6.2vw,76px);color:#fff;font-weight:750}
+.hero .sub{font-size:clamp(17px,1.6vw,19px);color:#B8C4D6;max-width:52ch;margin:20px 0 30px}
+.ctas{display:flex;flex-wrap:wrap;gap:12px}
+.passbook{background:#FBFCFA;color:var(--ink);border-radius:16px;padding:8px 18px;box-shadow:0 30px 60px -20px rgba(0,0,0,.5)}
+.pb{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px;padding:12px 0;border-bottom:1px solid #E7EBE4}
+.pb:last-child{border-bottom:0}
+.pb .n{font-size:14px;color:#3A4659;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.pb .c{font-size:14px;font-weight:600;white-space:nowrap;text-align:right;opacity:0;transform:translateX(6px);transition:opacity .4s ease,transform .4s ease}
+.pb .bar{grid-column:1/-1;height:3px;background:#E7EBE4;border-radius:2px;overflow:hidden}
+.pb .bar i{display:block;height:100%;width:0;transition:width .7s ease}
+.pb.on .c{opacity:1;transform:none}
+.cap{font-size:13px;color:#8796AD;margin-top:12px}
+.shot{position:relative;z-index:1;margin-top:clamp(48px,7vw,80px);border-radius:14px 14px 0 0;background:#0B1427;border:1px solid rgba(255,255,255,.1);border-bottom:0;box-shadow:0 -10px 80px -20px rgba(230,162,60,.25);overflow:hidden}
+.chrome{display:flex;align-items:center;gap:7px;height:38px;padding:0 14px;background:#121E36;border-bottom:1px solid rgba(255,255,255,.07)}
+.chrome i{width:11px;height:11px;border-radius:50%;background:#2B3A57}
+.chrome span{margin-left:14px;font-size:12px;color:#7D8BA3;background:#0B1427;padding:3px 12px;border-radius:6px}
+
+/* three points */
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(20px,3vw,40px)}
+.three h3{font-size:22px;margin:14px 0 8px;color:var(--text)}
+.three p{color:var(--muted);margin:0}
+.ico{width:44px;height:44px;border-radius:12px;background:var(--panel);border:1px solid var(--rule);display:grid;place-items:center}
+.lead{font-size:clamp(30px,4vw,48px);margin-bottom:clamp(32px,5vw,56px);max-width:22ch;color:var(--text)}
+
+/* feature bands */
+.feat{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(28px,5vw,72px);align-items:center;padding:clamp(40px,6vw,72px) 0;border-top:1px solid var(--rule)}
+.feat.flip{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+.feat.flip .txt{order:2}
+.feat h3{font-size:clamp(26px,3vw,36px);color:var(--text);margin-bottom:14px}
+.feat p{color:var(--muted);margin:0 0 16px;max-width:52ch}
+.feat ul{margin:0;padding:0;list-style:none}
+.feat li{padding:9px 0 9px 26px;position:relative;border-bottom:1px solid var(--rule);font-size:15px}
+.feat li::before{content:"";position:absolute;left:2px;top:17px;width:10px;height:6px;border-left:2px solid var(--credit);border-bottom:2px solid var(--credit);transform:rotate(-45deg)}
+.frame{border-radius:14px;overflow:hidden;border:1px solid var(--rule);background:var(--panel);box-shadow:0 24px 60px -30px rgba(22,35,63,.45)}
+
+/* metrics */
+.dark{background:var(--ink2);color:#E4E9F1}
+.dark .lead{color:#fff}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#16233F;border:1px solid #26344F;border-bottom:4px double var(--marigold);border-radius:14px 14px 4px 4px;overflow:hidden}
+.m{padding:22px 22px 24px;border-left:1px solid #26344F}.m:first-child{border-left:0}
+.m .l{font-size:14px;color:#9DAAC0}
+.m .v{font:650 clamp(30px,3.4vw,42px)/1.1 "Bricolage Grotesque",sans-serif;color:#fff;margin:8px 0 6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.m .v.g{color:#5CC497}
+.m .d{font-size:14px;color:#B8C4D6}
+.note{font-size:14px;color:#8796AD;margin-top:16px;max-width:90ch}
+.ops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:40px}
+.op{background:rgba(255,255,255,.04);border:1px solid #26344F;border-radius:12px;padding:20px}
+.op h3{font-size:18px;color:#fff;margin-bottom:6px}
+.op p{margin:0;color:#9DAAC0;font-size:15px}
+
+/* stack + data */
+.stack{display:flex;flex-wrap:wrap;gap:12px 36px;align-items:center;justify-content:center;color:var(--muted);font:600 19px "Bricolage Grotesque",sans-serif}
+.stack span{opacity:.85}
+.data{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.ds{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:20px 22px}
+.ds h3{font-size:18px;color:var(--text);margin-bottom:6px}
+.ds .k{display:inline-block;font-size:13px;font-weight:600;padding:2px 10px;border-radius:999px;margin-bottom:10px}
+.k.off{background:light-dark(#E1F0E8,#173B2E);color:light-dark(#17603F,#7FD3AC)}
+.k.sim{background:light-dark(#FBEFD9,#3D2F17);color:light-dark(#8A5A10,#F1C27A)}
+.k.gen{background:light-dark(#E6EAF2,#26344F);color:light-dark(#16233F,#C9D3E3)}
+.ds p{margin:0;color:var(--muted);font-size:15px}
+
+/* run it */
+.run{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(28px,5vw,64px);align-items:center}
+.code{position:relative;background:#0B1427;color:#DCE3EE;border-radius:14px;padding:22px 22px 18px;border:1px solid #26344F}
+.code pre{margin:0;padding-top:30px;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace}
+.code .c1{color:#7D8BA3}
+.copy{position:absolute;top:12px;right:12px;min-height:36px;padding:0 14px;border-radius:8px;border:1px solid #33456A;background:#16233F;color:#DCE3EE;font:600 13px "IBM Plex Sans",sans-serif;cursor:pointer}
+
+/* footer */
+footer{background:var(--ink2);color:#9DAAC0;padding:56px 0 36px;font-size:15px}
+.fcols{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:32px}
+footer h4{color:#fff;font:600 15px "IBM Plex Sans",sans-serif;margin:0 0 12px}
+footer a{display:block;color:#9DAAC0;text-decoration:none;padding:4px 0}footer a:hover{color:#fff}
+.fbot{border-top:1px solid #26344F;margin-top:40px;padding-top:20px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;font-size:14px}
+
+@media(max-width:900px){.links{display:none}.hero-top,.feat,.feat.flip,.run{grid-template-columns:minmax(0,1fr)}.feat.flip .txt{order:0}
+  .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.m:nth-child(3){border-left:0}.m:nth-child(n+3){border-top:1px solid #26344F}
+  .ops,.three{grid-template-columns:minmax(0,1fr)}.fcols{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.data{grid-template-columns:minmax(0,1fr)}.nav .btn{padding:0 14px}.nav .wrap{gap:12px}.brand span{display:none}
+  .metrics{grid-template-columns:minmax(0,1fr)}.m{border-left:0;border-top:1px solid #26344F}.m:first-child{border-top:0}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.pb .c,.pb .bar i{transition:none}}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top"><div class="mark">S</div><span>Smart Finance Tracker</span></a>
+    <div class="links"><a href="#features">Features</a><a href="#results">Results</a><a href="#data">Data</a><a href="#run">Run it</a></div>
+    <a class="btn primary" href="https://github.com/joshi-mishita/finance-tracker">View on GitHub</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-top">
+      <div>
+        <a class="pill" href="#results"><b>New</b> Tested on three public Indian transaction datasets</a>
+        <h1>Your bank statement, sorted.</h1>
+        <p class="sub">Smart Finance Tracker reads UPI, NEFT and card narrations, files every payment under the right category, spots your subscriptions and forecasts next month's spending from your own history.</p>
+        <div class="ctas">
+          <a class="btn primary" href="#run">Run it locally</a>
+          <a class="btn ghost" href="https://github.com/joshi-mishita/finance-tracker">Read the code</a>
+        </div>
+      </div>
+      <div>
+        <div class="passbook" id="passbook" aria-label="Example narrations and the categories the model assigns"></div>
+        <div class="cap">Real output of the categorisation model. Low-confidence guesses are flagged for review instead of being filed silently.</div>
+      </div>
+    </div>
+    <div class="shot">
+      <div class="chrome"><i></i><i></i><i></i><span>localhost:8501/dashboard</span></div>
+      <img src="screenshots/dashboard.png" alt="Dashboard with money in, money out, savings, spending by category and a 12-month trend" width="1440" height="900">
+    </div>
+  </div>
+</header>
+
+<section class="band" id="features">
+  <div class="wrap">
+    <h2 class="lead">Everything your passbook never told you</h2>
+    <div class="three">
+      <div><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E6A23C" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h6"/></svg></div>
+        <h3>Categorised automatically</h3><p>A text model trained on Indian merchant names and narration formats labels each payment and tells you how sure it is.</p></div>
+      <div><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E7B5A" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg></div>
+        <h3>Subscriptions found for you</h3><p>Recurring payments are detected from timing and amount patterns, with next due dates and yearly cost.</p></div>
+      <div><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3B6EA8" stroke-width="2" stroke-linecap="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></div>
+        <h3>Next month, forecast</h3><p>Spending per category is predicted with a likely range, then turned into a budget that funds your goals.</p></div>
+    </div>
+
+    <div class="feat">
+      <div class="txt">
+        <h3>Every payment, filed and checkable</h3>
+        <p>Import a bank-statement CSV or add payments one by one. Each gets a category and a confidence score, and you can change any category straight in the table.</p>
+        <ul><li>Understands UPI, NEFT, IMPS, ACH and card narrations</li><li>Unfamiliar merchants are flagged "Needs review"</li><li>Your corrections are saved as feedback for retraining</li></ul>
+      </div>
+      <div class="frame"><img src="screenshots/transactions.png" alt="Transactions table with categories, confidence bars and review status" width="1440" height="900"></div>
+    </div>
+
+    <div class="feat flip">
+      <div class="txt">
+        <h3>Subscriptions, bills and autopay</h3>
+        <p>Netflix, SIPs, prepaid recharges and broadband show up on their own, with what they cost you per year. Confirm or dismiss each one.</p>
+        <ul><li>Handles 28-day, monthly and quarterly cycles</li><li>Overdue bills are marked on the dashboard</li><li>Autopay is a clearly labelled simulation; no money moves</li></ul>
+      </div>
+      <div class="frame"><img src="screenshots/subscriptions.png" alt="Detected subscriptions with amount, cycle, next due date and yearly cost" width="1440" height="900"></div>
+    </div>
+
+    <div class="feat">
+      <div class="txt">
+        <h3>A forecast you can budget with</h3>
+        <p>Next month's spend for each category, with the range it will probably land in. Essentials get a buffer; discretionary spending is trimmed only when your goals need it.</p>
+        <ul><li>Built from your own last 3 to 12 months</li><li>Savings forecast and goal timelines</li><li>Edit and save your own budget</li></ul>
+      </div>
+      <div class="frame"><img src="screenshots/forecast.png" alt="Forecast of next month's spending per category with likely ranges" width="1440" height="900"></div>
+    </div>
+
+    <div class="feat flip">
+      <div class="txt">
+        <h3>Know what kind of spender you are</h3>
+        <p>Clustering places you in a spending persona and shows exactly where you differ from it, alongside weekday patterns, fast-growing categories and unusual payments.</p>
+        <ul><li>Five personas, from Saver to Debt-Heavy</li><li>Weekend vs weekday hypothesis test</li><li>Unusual transactions flagged with a robust IQR rule</li></ul>
+      </div>
+      <div class="frame"><img src="screenshots/insights.png" alt="Insights page with persona, comparison chart and spending patterns" width="1440" height="900"></div>
+    </div>
+  </div>
+</section>
+
+<section class="band dark" id="results">
+  <div class="wrap">
+    <h2 class="lead">Not just a dashboard, a full ML system</h2>
+    <div class="metrics">
+      <div class="m"><div class="l">Categorisation, known merchants</div><div class="v g">0.976</div><div class="d">macro F1, against 0.020 for the baseline</div></div>
+      <div class="m"><div class="l">Categorisation, new merchants</div><div class="v">0.535</div><div class="d">macro F1 on a public dataset it never saw</div></div>
+      <div class="m"><div class="l">Subscription detection</div><div class="v g">0.991</div><div class="d">F1, against 0.410 for a timing rule</div></div>
+      <div class="m"><div class="l">Spending forecast</div><div class="v g">12% lower</div><div class="d">error (RMSE) than a 3-month average</div></div>
+    </div>
+    <p class="note">Every figure comes from one held-out test run. The models are trained on synthetic multi-user histories calibrated with official and public data, so these numbers describe that data, not real-world performance. The new-merchant score is the honest expectation for unfamiliar payees.</p>
+    <div class="ops">
+      <div class="op"><h3>Compared, not assumed</h3><p>Four to eleven models per task against a baseline, with SMOTE, class weights and no reweighting tested for the imbalanced classifiers.</p></div>
+      <div class="op"><h3>No leakage</h3><p>One pipeline per model, time-based splits for forecasting, user-grouped splits elsewhere, and a test set used once.</p></div>
+      <div class="op"><h3>Tracked and versioned</h3><p>Every run logged to MLflow, models saved as versioned files with a registry, and the whole app shipped with Docker.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" style="padding-block:clamp(40px,5vw,64px)">
+  <div class="wrap">
+    <div class="stack" aria-label="Built with"><span>Python</span><span>scikit-learn</span><span>XGBoost</span><span>LightGBM</span><span>imbalanced-learn</span><span>MLflow</span><span>Streamlit</span><span>SQLite</span><span>Docker</span></div>
+  </div>
+</section>
+
+<section class="band" id="data" style="padding-top:0">
+  <div class="wrap">
+    <h2 class="lead">Honest about its data</h2>
+    <div class="data">
+      <div class="ds"><span class="k off">Official</span><h3>MoSPI HCES 2023-24</h3><p>Urban household spending shares set the category mix of every generated user.</p></div>
+      <div class="ds"><span class="k sim">Public, simulated</span><h3>UPI Transactions 2024</h3><p>250,000 payments set realistic ticket sizes per category and showed there is no weekend effect.</p></div>
+      <div class="ds"><span class="k sim">Public, synthetic</span><h3>Indian transaction dataset</h3><p>Real merchant names, extra training rows and an external test set, with half its new merchants held out.</p></div>
+      <div class="ds"><span class="k gen">Generated</span><h3>300 users, 24 months</h3><p>Multi-month histories for forecasting, subscriptions and personas, which no public dataset provides.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band dark" id="run">
+  <div class="wrap run">
+    <div>
+      <h2 class="lead" style="margin-bottom:18px">Your next statement starts here</h2>
+      <p style="color:#B8C4D6;max-width:46ch;margin:0 0 24px">Clone the repository, train the four models once, and open the app. Create an account, then load the demo history to see every page filled in.</p>
+      <a class="btn primary" href="https://github.com/joshi-mishita/finance-tracker">Get the code on GitHub</a>
+    </div>
+    <div class="code">
+      <button class="copy" id="copy" type="button">Copy</button>
+<pre id="cmds"><span class="c1"># Python 3.12+, inside a virtual environment</span>
+git clone https://github.com/joshi-mishita/finance-tracker
+cd finance-tracker
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+python -m src.data_prep
+python -m src.train
+python -m streamlit run app.py</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="fcols">
+      <div><a class="brand" href="#top" style="padding:0;margin-bottom:12px"><div class="mark">S</div>Smart Finance Tracker</a>
+        <p style="margin:0;max-width:34ch">A data science mini project for the Fundamentals of Computing for Data Science Lab.</p></div>
+      <div><h4>Product</h4><a href="#features">Transactions</a><a href="#features">Subscriptions</a><a href="#features">Forecast and budget</a><a href="#features">Insights</a></div>
+      <div><h4>Project</h4><a href="https://github.com/joshi-mishita/finance-tracker">Source code</a><a href="https://github.com/joshi-mishita/finance-tracker#readme">README</a><a href="https://github.com/joshi-mishita/finance-tracker/blob/main/data/SOURCES.md">Data sources</a><a href="https://github.com/joshi-mishita/finance-tracker/blob/main/results/summary.md">Model results</a></div>
+      <div><h4>Built with</h4><a href="https://streamlit.io">Streamlit</a><a href="https://scikit-learn.org">scikit-learn</a><a href="https://mlflow.org">MLflow</a></div>
+    </div>
+    <div class="fbot"><span>Smart Finance Tracker, 2026</span><span>Fonts: Bricolage Grotesque and IBM Plex Sans (SIL Open Font License)</span></div>
+  </div>
+</footer>
+
+<script>
+{
+  const rows = [
+    ["UPI/SWIGGY/402291/Payment", "Food & Dining", 97, false],
+    ["ACH D- HDFC BANK EMI 88213004", "EMI & Loans", 98, false],
+    ["NEFT-HOUSE RENT-NOV", "Rent", 100, false],
+    ["POS 4471 DMART PUNE", "Groceries", 96, false],
+    ["UPI/RAHUL SHARMA/551204/paid", "Needs review", 19, true]
+  ];
+  const box = document.getElementById("passbook");
+  box.innerHTML = rows.map(([n, c, p, r]) =>
+    `<div class="pb"><div class="n">${n}</div><div class="c" style="color:${r ? "#9A6410" : "#1E7B5A"}">${c} (${p}%)</div>` +
+    `<div class="bar"><i data-w="${p}" style="background:${r ? "#E6A23C" : "#1E7B5A"}"></i></div></div>`).join("");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  box.querySelectorAll(".pb").forEach((el, i) => {
+    const on = () => { el.classList.add("on"); const b = el.querySelector("i"); b.style.width = b.dataset.w + "%"; };
+    reduce ? on() : setTimeout(on, 500 + i * 380);
+  });
+  const btn = document.getElementById("copy");
+  btn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(document.getElementById("cmds").innerText.split("\n").filter(l => !l.startsWith("#")).join("\n")); btn.textContent = "Copied"; }
+    catch (e) { btn.textContent = "Select and copy"; }
+    setTimeout(() => (btn.textContent = "Copy"), 2000);
+  });
+}
+</script>
+</body>
+</html>

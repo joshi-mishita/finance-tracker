@@ -19,9 +19,17 @@ with an MLOps setup of MLflow tracking, versioned model files and Docker.
 | **Forecast and budget** | **Insights** |
 | ![Forecast](docs/screenshots/forecast.png) | ![Insights](docs/screenshots/insights.png) |
 
-The interface uses a passbook-inspired design: ink-blue and cheque-paper colours, a ruled "ledger strip" for key figures
+The interface uses a passbook-inspired design with product-style top navigation and a user menu: ink-blue and
+cheque-paper colours, a ruled "ledger strip" for key figures
 (green for money in, red for money out), and bundled open-source fonts (Bricolage Grotesque and IBM Plex Sans,
 SIL Open Font License, in `static/fonts/`), so it looks the same offline and in Docker.
+
+## Project website
+
+A product landing page for the project lives in [`docs/index.html`](docs/index.html), with the app screenshots in
+`docs/screenshots/` and bundled fonts in `docs/fonts/`. To publish it for free with GitHub Pages:
+**Settings → Pages → Build and deployment → Deploy from a branch → `main` / `/docs` → Save**. After a minute it is live at
+`https://joshi-mishita.github.io/finance-tracker/`.
 
 ## Features
 
@@ -51,7 +59,8 @@ detector it gave the best CV F1 by a margin smaller than the noise, so a faster 
 
 ```
 finance-tracker/
-├── app.py                  # Streamlit app: sign-in page + 7 pages, one function per page
+├── app.py                  # Streamlit app: sign-in page + 7 pages (top navigation), one function per page
+├── docs/                   # project website (GitHub Pages) + screenshots
 ├── static/fonts/           # bundled fonts (OFL), served by Streamlit static serving
 ├── src/
 │   ├── data_prep.py        # public-data loaders, synthetic generator (HCES-calibrated), cleaning
@@ -81,6 +90,10 @@ and fail with `No module named 'imblearn'`.
 
 **macOS (Apple Silicon):** run `brew install libomp` first (needed by XGBoost and LightGBM). Port 5000 is used by AirPlay
 Receiver, so run MLflow on 5001 and start the app with `MLFLOW_UI_URL=http://localhost:5001 python -m streamlit run app.py`.
+
+In the app, open **Create account** (name, username, monthly income, password). Then open the menu with your name
+(top right) and click **Load demo data** to fill every page with 24 months of a generated user's history. Next time,
+use **Sign in**.
 
 ### Docker
 ```bash
