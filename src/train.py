@@ -7,6 +7,8 @@ class_weight="balanced" and SMOTE. SMOTE lives *inside* an imblearn Pipeline, so
 training folds during CV and never to validation/test data (no leakage).
 """
 import json
+import os
+os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 import subprocess
 import sys
 import time
@@ -660,9 +662,13 @@ def name_clusters(profile):
         k = p.loc[remaining, col].idxmax()
         names[str(k)] = dict(name=name, description=desc, tip=tip)
         remaining.remove(k)
+    # leftover clusters: named after the trait on which they score highest (z-score across clusters)
+    cols = [r[1] for r in rules]
+    z = (p[cols] - p[cols].mean()) / p[cols].std().replace(0, 1)
     for k in remaining:
-        names[str(k)] = dict(name=f"Balanced Spender {k}", description="No single category dominates.",
-                             tip="Review your top 3 categories each month.")
+        name, _, desc, tip = rules[int(np.argmax(z.loc[k].to_numpy()))]
+        names[str(k)] = dict(name=f"Moderate {name}", description=f"A milder version of the {name} pattern. {desc}",
+                             tip=tip)
     return names
 
 
@@ -772,23 +778,27 @@ def _persona_plots(X, lab, names, profile):
 
 # ====================================================================================== summary
 def write_summary():
-    lines = ["# Results summary", "",
-             "> All numbers come from `python -m src.train` on **synthetic data** (see README). They are not real-world performance.", ""]
+    """results/summary.md, rebuilt from model_info.json + comparison CSVs (so it is always complete)."""
     info = load_info()
-    for module, s in SUMMARY.items():
-        lines += [f"## {module}", "", f"Primary metric: **{s['primary']}**", "",
-                  pd.DataFrame(s["rows"]).round(4).to_markdown(index=False), "",
-                  f"**Winner:** {s['winner']}  ", f"**Test metrics:** " + ", ".join(
-                      f"{k}={v:.4f}" for k, v in s["test"].items() if isinstance(v, (int, float))), "  ",
-                  f"**Baseline (test):** " + ", ".join(f"{k}={v:.4f}" if isinstance(v, (int, float)) else f"{k}: {v}"
-                                                        for k, v in s["baseline"].items()), ""]
-        if module in info:
-            lines += [f"Registered version: v{info[module]['version']} ({info[module]['file']})", ""]
-    path = RESULTS / "summary.md"
-    old = path.read_text() if path.exists() else ""
-    # keep sections of modules not retrained in this run
-    path.write_text("\n".join(lines) + ("\n\n<!-- previous -->\n" + old.split("<!-- previous -->")[0] if old and len(SUMMARY) < 4 else ""))
-    print(f"[summary] wrote {path}")
+    lines = ["# Results summary", "",
+             "> All numbers come from `python -m src.train` on **synthetic data** (see README). "
+             "They are not real-world performance.", ""]
+    fmt = lambda d: ", ".join(f"{k}={v:.4f}" if isinstance(v, (int, float)) else f"{k}: {v}" for k, v in d.items())
+    for module in ["categorizer", "subscription", "forecaster", "persona"]:
+        if module not in info:
+            continue
+        e = info[module]
+        comp = pd.read_csv(RESULTS / f"model_comparison_{module}.csv")
+        if module == "persona":
+            comp = comp.sort_values("silhouette", ascending=False).head(10)
+        comp = comp.drop(columns=[c for c in comp.columns if c == "params"])
+        lines += [f"## {module}", "", f"Primary metric: **{e['primary_metric']}**", "",
+                  comp.round(4).to_markdown(index=False), "",
+                  f"**Winner:** {e['algorithm']} (v{e['version']}, `{e['file']}`)  ",
+                  f"**Test metrics:** {fmt(e['test_metrics'])}  ",
+                  f"**Baseline (test):** {fmt(e['baseline_metrics'])}", ""]
+    (RESULTS / "summary.md").write_text("\n".join(lines))
+    print(f"[summary] wrote {RESULTS / 'summary.md'}")
 
 
 def main(modules=None):
@@ -807,4 +817,7 @@ def main(modules=None):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or None)
+    if sys.argv[1:] == ["summary"]:
+        write_summary()
+    else:
+        main(sys.argv[1:] or None)

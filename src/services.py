@@ -184,7 +184,7 @@ def import_csv(file, username, models, info):
         need = {"date", "description", "amount"}
         if not need <= set(cols):
             raise ValueError(f"CSV needs columns {sorted(need)} (optional: type). Found: {list(raw.columns)}")
-        df = pd.DataFrame({"date": pd.to_datetime(raw[cols["date"]], errors="coerce", dayfirst=True),
+        df = pd.DataFrame({"date": pd.to_datetime(raw[cols["date"]], errors="coerce", dayfirst=True, format="mixed"),
                            "description": raw[cols["description"]].astype(str),
                            "amount": pd.to_numeric(raw[cols["amount"]], errors="coerce")})
         if "type" in cols:
