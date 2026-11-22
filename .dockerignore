@@ -14,3 +14,4 @@ finance.db
 *statement*
 personal
 .env
+.streamlit/secrets.toml

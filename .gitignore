@@ -28,3 +28,6 @@ personal/
 
 .DS_Store
 .env
+
+# API keys (never commit)
+.streamlit/secrets.toml

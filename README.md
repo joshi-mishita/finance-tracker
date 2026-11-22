@@ -20,6 +20,8 @@ with an MLOps setup of MLflow tracking, versioned model files and Docker.
 | ![Forecast](docs/screenshots/forecast.png) | ![Goals](docs/screenshots/goals.png) |
 | **Rewards** | **Insights** |
 | ![Rewards](docs/screenshots/rewards.png) | ![Insights](docs/screenshots/insights.png) |
+| **AI assistant** (opens from the chat button in the bottom-right corner) | |
+| ![AI assistant](docs/screenshots/chat.png) | |
 
 The interface is a dark, gamified design: neon lime with pink, cyan, purple and yellow accents, a lime hero card,
 segmented progress rings and a level card in the sidebar. Fonts are bundled (Archivo Black for titles, Poppins for text
@@ -49,6 +51,7 @@ A product landing page for the project lives in [`docs/index.html`](docs/index.h
 | App | Sign-up / sign-in with salted PBKDF2-SHA256 password hashes | Non-ML |
 | | Overview, goals with milestones and budget rings, CSV / bank-statement import | Non-ML |
 | | **Rewards:** XP, levels, saving streaks and 8 badges, all computed from the user's real activity (saving months, corrections, confirmed subscriptions, goals) | Gamification |
+| | **AI assistant:** floating chat button on every page opens a chat that answers questions about the user's own figures (6-month totals, categories, merchants, subscriptions, forecast, goals, persona). Uses Groq (Llama 3.3 70B), streams replies, keeps the conversation, falls back to Llama 3.1 8B | LLM (Groq API) |
 | | Admin page: model versions, test metrics vs baseline, comparison tables, plots, user-feedback stats | MLOps |
 
 **Imbalanced data → SMOTE.** Both classifiers face imbalanced classes (categorizer: 11.6 : 1 between the largest and
@@ -97,6 +100,19 @@ Receiver, so run MLflow on 5001 and start the app with `MLFLOW_UI_URL=http://loc
 In the app, open **Create account** (name, username, monthly income, password). Then click **Load demo data** (or open
 **Account** at the bottom of the sidebar) to fill every page with 24 months of a generated user's history. Next time,
 use **Sign in**.
+
+### AI assistant (optional, free Groq key)
+1. Create a key at [console.groq.com](https://console.groq.com) → API Keys.
+2. Copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` and paste the key:
+   ```toml
+   GROQ_API_KEY = "gsk_..."
+   ```
+3. Restart the app and click the round chat button in the bottom-right corner.
+
+`.streamlit/secrets.toml` is in `.gitignore` and `.dockerignore`, so the key never reaches GitHub or the image. For Docker,
+put `GROQ_API_KEY=gsk_...` in a `.env` file next to `docker-compose.yml` (also git-ignored). Without a key the rest of
+the app works normally and the chat window explains how to add one. Only a short text summary of the user's figures is
+sent to Groq, never the raw transaction table.
 
 ### Docker
 ```bash

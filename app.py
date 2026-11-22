@@ -183,6 +183,28 @@ div[data-testid="stSidebarNavSeparator"] {{display: none;}}
 .ava {{width: 44px; height: 44px; border-radius: 50%; padding: 3px; background: conic-gradient({LIME}, {CYAN}, {PURPLE}, {PINK}, {LIME});}}
 .ava div {{width: 100%; height: 100%; border-radius: 50%; background: #0E120D; display: grid; place-items: center; color: #FFFFFF; font-weight: 800;}}
 .prof b {{color: #FFFFFF; display: block; font-size: .92rem;}} .prof span {{color: {MUTED}; font-size: .76rem;}}
+/* floating AI assistant button + chat window */
+.st-key-chatfab {{position: fixed; right: 28px; bottom: 26px; z-index: 999990; width: auto !important;}}
+.st-key-chatfab button {{width: 62px; height: 62px; min-height: 62px; border-radius: 50% !important; padding: 0 !important;
+     background: {LIME} !important; border: none !important; box-shadow: 0 0 0 4px rgba(140,245,66,.18), 0 12px 32px -6px rgba(140,245,66,.75) !important;
+     transition: transform .15s ease;}}
+.st-key-chatfab button:hover {{transform: translateY(-2px) scale(1.04);}}
+.st-key-chatfab button span[data-testid="stIconMaterial"] {{color: #0B0E0A !important; font-size: 28px;}}
+.st-key-chatfab button p {{position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);}}
+.st-key-chatfab::after {{content: ""; position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; border-radius: 50%;
+     background: {PINK}; border: 2px solid {BG};}}
+div[role="dialog"] {{background: {PANEL} !important; border: 1px solid {LINE}; border-radius: 22px !important;}}
+div[role="dialog"] h2, div[role="dialog"] [data-testid="stDialogHeader"] div {{font-family: "Archivo Black", sans-serif !important; text-transform: uppercase;
+     letter-spacing: .01em; color: #FFFFFF;}}
+div[class*="st-key-chatbox"] {{background: #0E120D; border: 1px solid {LINE} !important; border-radius: 16px !important;}}
+div[data-testid="stChatMessage"] {{background: transparent; padding: .35rem .2rem;}}
+div[data-testid="stChatMessageAvatarAssistant"] {{background: {LIME} !important; color: #0B0E0A !important;}}
+div[data-testid="stChatMessageAvatarUser"] {{background: {PURPLE} !important; color: #0B0E0A !important;}}
+div[class*="st-key-sug"] button {{text-align: left; justify-content: flex-start; background: #161C14 !important; border: 1px solid #2B3428 !important;
+     border-radius: 12px !important; font-weight: 500 !important;}}
+div[class*="st-key-sug"] button:hover {{border-color: {LIME} !important;}}
+div[data-testid="stChatInput"] {{border-radius: 14px !important;}}
+div[data-testid="stChatInput"] textarea, div[data-testid="stChatInput"] textarea:focus {{outline: none !important; box-shadow: none !important; border: none !important;}}
 .foot {{text-align: center; color: #5E6A59; font-size: .74rem; margin-top: 2rem;}}
 @media (max-width: 760px) {{ .hero .spark {{display: none;}} .badges {{grid-template-columns: repeat(2, minmax(0, 1fr));}}
   .ms {{grid-template-columns: repeat(2, minmax(0, 1fr));}} .pt h1 {{font-size: 2.2rem;}} }}
@@ -1002,6 +1024,66 @@ def page_auth(models, info):
                     'project, so avoid uploading real statements on a shared computer.</div>', unsafe_allow_html=True)
 
 
+# ====================================================================================== AI assistant
+SUGGESTIONS = ["Where did most of my money go last month?", "Which subscriptions cost me the most per year?",
+               "Am I on track for my goals?", "How could I save ₹2,000 more next month?"]
+
+
+@st.dialog("Ask your money", width="large")
+def chat_dialog(username, models, info):
+    key, model = S.groq_settings()
+    if not key:
+        st.markdown('<p class="muted">The assistant needs a free Groq API key. Create one at console.groq.com, then put it '
+                    'in <code>.streamlit/secrets.toml</code> on your computer:</p>', unsafe_allow_html=True)
+        st.code('GROQ_API_KEY = "gsk_your_key_here"', language="toml")
+        st.markdown('<p class="muted">Restart the app afterwards. The file is in .gitignore, so the key never reaches GitHub. '
+                    'Running with Docker? Put the same line, without spaces or quotes, in a <code>.env</code> file next to docker-compose.yml.</p>',
+                    unsafe_allow_html=True)
+        return
+    hist = st.session_state.setdefault("chat", [])
+    box = st.container(height=420, key="chatbox")
+    question = None
+    with box:
+        if not hist:
+            with st.chat_message("assistant", avatar=":material/auto_awesome:"):
+                st.markdown("Hi! I can answer questions about **your** spending, bills, forecast and goals, using the figures "
+                            "in this app. Try one of these:")
+            for i, s_ in enumerate(SUGGESTIONS):
+                if st.button(s_, key=f"sug{i}", width="stretch"):
+                    question = s_
+        for m in hist:
+            with st.chat_message(m["role"], avatar=":material/auto_awesome:" if m["role"] == "assistant" else ":material/person:"):
+                st.markdown(m["content"])
+    typed = st.chat_input("Ask about your spending, bills or goals")
+    question = typed or question
+    if question:
+        hist.append({"role": "user", "content": question})
+        with box:
+            with st.chat_message("user", avatar=":material/person:"):
+                st.markdown(question)
+            with st.chat_message("assistant", avatar=":material/auto_awesome:"):
+                try:
+                    with st.spinner("Reading your numbers..."):
+                        context = S.finance_context(username, models, info)
+                    reply = st.write_stream(S.ask_groq_stream(hist, context, key, model))
+                    hist.append({"role": "assistant", "content": reply if isinstance(reply, str) else "".join(reply)})
+                except S.GroqError as e:
+                    hist.pop()
+                    st.error(str(e))
+    c1, c2 = st.columns([4, 1], vertical_alignment="center")
+    c1.markdown(f'<span class="muted" style="font-size:.76rem !important">Answers use your figures from this app, sent to Groq '
+                f'({esc(model)}). General guidance, not professional financial advice.</span>', unsafe_allow_html=True)
+    if hist and c2.button("Clear chat", width="stretch"):
+        st.session_state["chat"] = []
+        st.rerun(scope="fragment")
+
+
+def chat_fab(username, models, info):
+    with st.container(key="chatfab"):
+        if st.button("Ask AI", icon=":material/chat:", key="aibtn", help="Ask about your money"):
+            chat_dialog(username, models, info)
+
+
 # ====================================================================================== navigation / routing
 PAGES = [("Overview", "overview", page_overview, ":material/arrow_upward:"),
          ("Transactions", "transactions", page_transactions, ":material/receipt_long:"),
@@ -1057,6 +1139,7 @@ def main():
         pages.append(p)
     nav = st.navigation(pages, position="sidebar")
     sidebar(username, user, models, info)
+    chat_fab(username, models, info)
     nav.run()
 
 

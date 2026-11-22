@@ -593,3 +593,131 @@ def gamification(username):
     return dict(xp=xp, level=level, level_index=idx + 1, n_levels=len(LEVELS), floor=floor,
                 next_level=nxt[0] if nxt else None, next_xp=nxt[1] if nxt else xp, streak=streak, parts=parts,
                 badges=badges, unlocked=sum(b[2] for b in badges), monthly=ms)
+
+
+# ====================================================================================== AI assistant (Groq)
+# The assistant only sees a compact summary of the signed-in user's figures (built below), never the raw database.
+GROQ_URL = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1") + "/chat/completions"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
+
+
+def groq_settings():
+    """API key and model from .streamlit/secrets.toml or environment variables (never from code)."""
+    key, model = os.environ.get("GROQ_API_KEY"), os.environ.get("GROQ_MODEL")
+    try:
+        import streamlit as st
+        key = st.secrets.get("GROQ_API_KEY", key)
+        model = st.secrets.get("GROQ_MODEL", model)
+    except Exception:  # no secrets file
+        pass
+    return (key or "").strip(), (model or GROQ_DEFAULT_MODEL).strip()
+
+
+def finance_context(username, models, info):
+    """Plain-text summary of the user's data for the assistant (amounts in rupees)."""
+    u = get_user(username) or {}
+    tx = load_transactions(username)
+    lines = [f"User: {u.get('full_name') or username}. Stated monthly income: {inr(u.get('monthly_income') or 0)}.",
+             f"Today: {date.today():%d %b %Y}."]
+    if tx.empty:
+        lines.append("The user has no transactions yet.")
+        return "\n".join(lines)
+    lines.append(f"Transactions on record: {len(tx)} from {tx['date'].min():%d %b %Y} to {tx['date'].max():%d %b %Y}.")
+    months = sorted(tx["date"].dt.to_period("M").unique())[-6:]
+    lines.append("Last 6 months (income / spending excluding investments / saved / savings rate):")
+    for m in months:
+        k = kpis(tx, m)
+        lines.append(f"- {m.strftime('%b %Y')}: {inr(k['income'])} / {inr(k['expenses'])} / {inr(k['savings'])} / {k['rate']:.0%}")
+    last3 = tx[(tx["type"] == "debit") & tx["date"].dt.to_period("M").isin(months[-3:])]
+    by_cat = (last3.groupby("category")["amount"].sum() / 3).sort_values(ascending=False)
+    lines.append("Average monthly spend by category, last 3 months: " + "; ".join(f"{c} {inr(v)}" for c, v in by_cat.items()))
+    p = patterns(tx)
+    if p:
+        lines.append("Top merchants (all time): " + "; ".join(f"{n.title()} {inr(r['sum'])} over {int(r['count'])} payments"
+                                                            for n, r in p["merchants"].head(6).iterrows()))
+        if len(p["growth"]):
+            lines.append("Fastest-growing categories (last 3 vs previous 3 months): "
+                         + "; ".join(f"{c} {g:+.0%}" for c, g in p["growth"].head(4).items()))
+        lines.append(f"Average daily spend: weekend {inr(p['weekend_daily'])}, weekday {inr(p['weekday_daily'])}.")
+    subs = get_subscriptions(username)
+    if not subs.empty:
+        lines.append("Detected recurring payments: " + "; ".join(
+            f"{r.merchant.title()} {inr(r.avg_amount)} every {r.frequency_days:.0f} days (next due {r.next_due_date})"
+            for r in subs.itertuples()))
+    fc = forecast_next_month(username, models, info) if models else None
+    if fc is not None:
+        sv = savings_forecast(username, fc)
+        lines.append(f"Forecast for {fc.attrs['target_month']}: spend {inr(sv['spend'])}, income {inr(sv['income'])}, "
+                     f"savings {inr(sv['savings'])}. By category: "
+                     + "; ".join(f"{r.category} {inr(r.forecast)} (likely {inr(r.low)}-{inr(r.high)})"
+                                 for r in fc[fc['forecast'] > 0].itertuples()))
+    goals = get_goals(username)
+    for g in goals.itertuples():
+        lines.append(f"Goal '{g.name}': saved {inr(g.saved_amount)} of {inr(g.target_amount)}, target date {g.target_date}.")
+    per = persona(username, models, info) if models else None
+    if per and not per.get("cold_start"):
+        lines.append(f"Spending persona: {per['name']} ({per['description']}).")
+    unusual = unusual_transactions(tx)
+    if len(unusual):
+        lines.append("Unusual recent payments: " + "; ".join(f"{r.description} {inr(r.amount)} on {r.date:%d %b}"
+                                                            for r in unusual.head(3).itertuples()))
+    try:
+        g = gamification(username)
+        lines.append(f"App level: {g['level']} with {g['xp']} XP, saving streak {g['streak']} months.")
+    except Exception:
+        pass
+    return "\n".join(lines)
+
+
+SYSTEM_PROMPT = """You are the assistant inside Smart Finance Tracker, a personal finance app for Indian users.
+Answer questions about the user's money using ONLY the data summary below. Rules:
+- Quote figures from the summary; never invent transactions, merchants or numbers. If something is not in the summary, say so plainly.
+- Write amounts in rupees with Indian digit grouping (for example ₹1,25,000).
+- Be concise: 2 to 6 sentences or a short list. Friendly, plain English.
+- You may give general budgeting and saving tips. You are not a licensed financial adviser: do not recommend specific
+  stocks, funds or other investment products, and say so briefly if asked.
+- The app's autopay is a simulation; it never moves real money.
+
+DATA SUMMARY
+{context}"""
+
+
+class GroqError(Exception):
+    pass
+
+
+def ask_groq_stream(messages, context, key, model):
+    """Yield the assistant's reply in chunks (OpenAI-compatible streaming). Raises GroqError with a readable message."""
+    import json as _json
+    import requests
+    payload_msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(context=context)}] + messages[-10:]
+    for attempt_model in dict.fromkeys([model, GROQ_FALLBACK_MODEL]):
+        try:
+            r = requests.post(GROQ_URL, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                              json={"model": attempt_model, "messages": payload_msgs, "temperature": 0.3,
+                                    "max_tokens": 700, "stream": True}, stream=True, timeout=60)
+        except requests.RequestException:
+            raise GroqError("Could not reach Groq. Check your internet connection and try again.")
+        if r.status_code == 401:
+            raise GroqError("Groq rejected the API key. Check GROQ_API_KEY in .streamlit/secrets.toml.")
+        if r.status_code == 429:
+            raise GroqError("The free Groq limit was reached for now. Wait a minute and try again.")
+        if r.status_code in (400, 404) and attempt_model != GROQ_FALLBACK_MODEL:
+            continue  # model retired or unavailable: try the fallback model
+        if r.status_code != 200:
+            raise GroqError(f"Groq returned an error ({r.status_code}). Try again in a moment.")
+        for line in r.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                return
+            try:
+                delta = _json.loads(data)["choices"][0]["delta"].get("content")
+            except (ValueError, KeyError, IndexError):
+                continue
+            if delta:
+                yield delta
+        return
+    raise GroqError("No available Groq model answered. Set GROQ_MODEL in .streamlit/secrets.toml to a current model.")
