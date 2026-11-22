@@ -367,6 +367,13 @@ def page_insights(user, models, info):
     c[0].metric("Avg weekend day spend", S.inr(p["weekend_daily"]), f"{p['weekend_daily'] / max(p['weekday_daily'], 1) - 1:+.0%} vs weekday")
     c[1].metric("Avg weekday spend", S.inr(p["weekday_daily"]))
     c[2].metric("Recurring share of spending", f"{S.recurring_share(tx, subs):.0%}")
+    wt = S.weekend_test(tx)
+    if wt:
+        verdict = ("**is** statistically different" if wt["significant"] else "is **not** statistically different")
+        st.markdown(f'<div class="card">📊 <b>Hypothesis test</b> (Mann-Whitney U, two-sided, α = 0.05): your daily spend on '
+                    f'weekends (median {S.inr(wt["weekend_median"])}, n={wt["n_weekend"]}) {verdict} from weekdays '
+                    f'(median {S.inr(wt["weekday_median"])}, n={wt["n_weekday"]}); p = {wt["p_value"]:.4f}.</div>',
+                    unsafe_allow_html=True)
     a, b = st.columns(2)
     order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     wk = p["by_weekday"].reindex(order).fillna(0).reset_index()
@@ -380,6 +387,14 @@ def page_insights(user, models, info):
                      color_discrete_sequence=["#F59E0B"])
         fig.update_xaxes(tickformat="+.0%")
         b.plotly_chart(fig_style(fig), width="stretch")
+    st.markdown("#### 🚨 Unusual transactions (last 3 months)")
+    un = S.unusual_transactions(tx)
+    if un.empty:
+        st.caption("Nothing unusual - no payment above Q3 + 3×IQR of your own history for its category.")
+    else:
+        un = un.assign(date=un["date"].dt.date, amount=un["amount"].map(S.inr),
+                       times_typical=un["times_typical"].map(lambda x: f"{x:.1f}× typical"))
+        st.dataframe(un, hide_index=True, width="stretch")
 
 
 def page_admin(user, models, info):
@@ -392,6 +407,17 @@ def page_admin(user, models, info):
             "subscription": ["subscription_confusion_matrix.png", "subscription_roc_pr.png", "subscription_shap.png"],
             "forecaster": ["forecaster_baseline_vs_model.png", "forecaster_pred_vs_actual.png", "forecaster_residuals.png"],
             "persona": ["persona_pca.png", "persona_k_selection.png", "persona_centroid_heatmap.png"]}
+    fb = S.feedback_stats()
+    with st.container(border=True):
+        st.markdown("**Feedback from the app (all users)** - corrections are stored for future retraining "
+                    "(automated retraining is out of scope)")
+        c = st.columns(4)
+        c[0].metric("Categorised transactions", f"{fb['n']:,}")
+        c[1].metric("User correction rate", f"{fb['correction_rate']:.1%}")
+        c[2].metric("Needs-review rate", f"{fb['review_rate']:.1%}")
+        c[3].metric("Avg confidence", f"{fb['avg_confidence']:.2f}")
+        if len(fb["top_corrections"]):
+            st.dataframe(fb["top_corrections"], hide_index=True, width="stretch")
     tabs = st.tabs([n.title() for n in info])
     for tab, (name, e) in zip(tabs, info.items()):
         with tab:

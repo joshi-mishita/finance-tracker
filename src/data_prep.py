@@ -397,8 +397,9 @@ _MODE_PATTERNS = [("UPI", r"\bupi\b|^upi|upi[/-]"), ("NEFT", r"\bneft\b"), ("IMP
                   ("ACH", r"\bn?ach\b"), ("POS", r"\bpos\b"), ("ATM", r"\batm\b"), ("CARD", r"\*order|\becom\b")]
 _STOP = {"upi", "neft", "imps", "pos", "ach", "nach", "d", "dr", "cr", "p2m", "payment", "order", "ecom", "paid",
          "wdl", "received"}
-_KNOWN_LOWER = {m.lower(): m for m in KNOWN_MERCHANTS}
-_KNOWN_NOSPACE = {m.lower().replace(" ", ""): m for m in KNOWN_MERCHANTS}
+_PAYEES = KNOWN_MERCHANTS + PEOPLE  # known merchants + payee names (so "NEHAJOSHI" and "NEHA JOSHI" match)
+_KNOWN_LOWER = {m.lower(): m for m in _PAYEES}
+_KNOWN_NOSPACE = {m.lower().replace(" ", ""): m for m in _PAYEES}
 
 
 def payment_mode(desc):

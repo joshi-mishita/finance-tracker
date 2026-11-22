@@ -437,6 +437,48 @@ def patterns(tx):
                 by_weekday=d.groupby(d["date"].dt.day_name())["amount"].sum() / max(n_days / 7, 1))
 
 
+def weekend_test(tx):
+    """Statistical decision: is daily spend on weekends different from weekdays? Mann-Whitney U (non-parametric)."""
+    from scipy.stats import mannwhitneyu
+    d = tx[(tx["type"] == "debit") & ~tx["category"].isin(NON_EXPENSE)]
+    if d.empty:
+        return None
+    days = pd.date_range(d["date"].min(), d["date"].max(), freq="D")
+    daily = d.groupby(d["date"].dt.normalize())["amount"].sum().reindex(days, fill_value=0)
+    we, wd = daily[daily.index.dayofweek >= 5], daily[daily.index.dayofweek < 5]
+    if len(we) < 8 or len(wd) < 8:
+        return None
+    stat, p = mannwhitneyu(we, wd, alternative="two-sided")
+    return dict(p_value=float(p), weekend_median=float(we.median()), weekday_median=float(wd.median()),
+                significant=bool(p < 0.05), n_weekend=len(we), n_weekday=len(wd))
+
+
+def unusual_transactions(tx, k=3.0, months=3):
+    """Flag debits above Q3 + k*IQR of the user's own history in that category (shown for recent months)."""
+    d = tx[tx["type"] == "debit"].copy()
+    if len(d) < 30:
+        return d.iloc[0:0]
+    g = d.groupby("category")["amount"]
+    q1, q3 = g.transform(lambda s: s.quantile(0.25)), g.transform(lambda s: s.quantile(0.75))
+    d["limit"] = q3 + k * (q3 - q1)
+    d["times_typical"] = d["amount"] / g.transform("median")
+    recent = d["date"] >= d["date"].max() - pd.DateOffset(months=months)
+    out = d[(d["amount"] > d["limit"]) & recent & (g.transform("size") >= 10)]
+    return out.sort_values("date", ascending=False)[["date", "description", "category", "amount", "times_typical"]]
+
+
+def feedback_stats():
+    """Simple model-health signal from the app's own data: how often users correct the categorizer."""
+    with conn() as c:
+        r = c.execute("""SELECT COUNT(*) n, SUM(user_corrected) corrected, SUM(needs_review) review,
+                         AVG(confidence) conf FROM transactions WHERE source != 'autopay_simulated'""").fetchone()
+        top = pd.read_sql("""SELECT predicted_category AS predicted, category AS corrected_to, COUNT(*) AS n
+                             FROM transactions WHERE user_corrected=1 GROUP BY 1,2 ORDER BY n DESC LIMIT 10""", c)
+    n = r["n"] or 0
+    return dict(n=n, correction_rate=(r["corrected"] or 0) / n if n else 0, review_rate=(r["review"] or 0) / n if n else 0,
+                avg_confidence=r["conf"] or 0, top_corrections=top)
+
+
 def recurring_share(tx, subs):
     d = tx[tx["type"] == "debit"]
     if d.empty or subs.empty:
