@@ -100,7 +100,7 @@ use **Sign in**.
 ```bash
 docker compose build
 docker compose run --rm app python -m src.data_prep && docker compose run --rm app python -m src.train
-docker compose up            # app → http://localhost:8501, MLflow → http://localhost:5000
+docker compose up            # app → http://localhost:8501, MLflow → http://localhost:5001
 ```
 Models, data, results, MLflow runs and the SQLite DB (`./db/`) are mounted as volumes, so they survive restarts.
 Train either locally or in Docker, not both: MLflow stores absolute artifact paths. To switch, delete `mlruns/`.
