@@ -45,7 +45,7 @@ from sklearn.svm import LinearSVC
 from xgboost import XGBClassifier, XGBRegressor
 
 from src import features as F
-from src.data_prep import PROCESSED, RAW, ROOT, SEED, map_external_categories, clean_transactions
+from src.data_prep import PROCESSED, RAW, ROOT, SEED, clean_transactions, load_hf_labeled
 
 warnings.filterwarnings("ignore")
 MODELS = ROOT / "models"
@@ -153,6 +153,12 @@ def train_categorizer(df):
     data, _ = train_test_split(data, train_size=CAT_SAMPLE, stratify=data["category"], random_state=SEED)
     X, y = F.categorizer_frame(data), data["category"].to_numpy()
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
+    X_syn_tr, y_syn_tr = X_tr, y_tr
+    hf = _hf_split()  # public dataset #1: half joins training, half is an external test set
+    if hf is not None:
+        X_tr = pd.concat([X_tr, hf[0]], ignore_index=True)
+        y_tr = np.concatenate([y_tr, hf[1]])
+        print(f"[{module}] added {len(hf[0])} public dataset #1 rows to training; {len(hf[2])} kept as external test")
     cv = StratifiedKFold(5, shuffle=True, random_state=SEED)
     prep = F.categorizer_preprocessor
 
@@ -187,17 +193,28 @@ def train_categorizer(df):
         best = search.best_estimator_
         rows.append(dict(model=f"{best_name} (tuned)", cv_macro_f1=search.best_score_, params=str(search.best_params_)))
 
-    # confidence threshold on out-of-fold (validation) predictions
-    proba = cross_val_predict(best, X_tr, y_tr, cv=cv, method="predict_proba", n_jobs=N_JOBS)
-    classes = np.unique(y_tr)
+    # Confidence threshold, chosen on VALIDATION data that mimics new merchants: split the synthetic *training* rows by
+    # merchant, fit on some merchants and predict the others (the test split is never touched). On known merchants the
+    # model is almost always right, so a threshold tuned there would never flag the cases that matter.
+    from sklearn.base import clone
+    m_tr = data.loc[X_syn_tr.index, "merchant"].to_numpy()
+    a, v = next(GroupShuffleSplit(1, test_size=0.3, random_state=SEED).split(X_syn_tr, y_syn_tr, m_tr))
+    val_model = clone(best).fit(X_syn_tr.iloc[a], y_syn_tr[a])
+    proba = val_model.predict_proba(X_syn_tr.iloc[v])
+    yv, classes = y_syn_tr[v], val_model.classes_
     conf, pred = proba.max(1), classes[proba.argmax(1)]
-    ths = np.round(np.arange(0.30, 0.95, 0.05), 2)
+    ths = np.round(np.arange(0.30, 0.96, 0.05), 2)
     curve = pd.DataFrame([dict(threshold=t, coverage=(conf >= t).mean(),
-                               accuracy=(pred[conf >= t] == y_tr[conf >= t]).mean() if (conf >= t).any() else np.nan)
+                               accuracy=(pred[conf >= t] == yv[conf >= t]).mean() if (conf >= t).any() else np.nan)
                           for t in ths])
-    ok = curve[curve["accuracy"] >= 0.98]  # auto-accept only where >=98% of accepted predictions are right
-    threshold = float(ok["threshold"].min()) if len(ok) else 0.6
-    print(f"[{module}] confidence threshold chosen on validation: {threshold}")
+    curve.to_csv(RESULTS / "categorizer_threshold_curve.csv", index=False)
+    print(curve.round(3).to_string(index=False))
+    # Confidence is poorly calibrated on new merchants (accuracy plateaus), so a fixed accuracy target is unstable.
+    # Rule: the most accurate threshold that still auto-accepts >= 25% of new-merchant rows (ties -> lower threshold).
+    ok = curve[curve["coverage"] >= 0.25]
+    threshold = float(ok.loc[ok["accuracy"].round(3).idxmax(), "threshold"]) if len(ok) else 0.6
+    print(f"[{module}] confidence threshold chosen on unseen-merchant validation: {threshold} "
+          f"(auto-accepts {curve.set_index('threshold').loc[threshold, 'coverage']:.0%} of new-merchant rows)")
 
     # final fit on all training data, single test evaluation
     best.fit(X_tr, y_tr)
@@ -212,9 +229,22 @@ def train_categorizer(df):
 
     test["unseen_merchant_macro_f1"] = _unseen_merchant_check(best, X, y, data["merchant"].to_numpy())
     figs = _categorizer_plots(best, X_tr, y_tr, y_te, y_hat, report, curve, threshold)
-    ext = _external_check(best)
-    if ext:
-        test["external_macro_f1"] = ext
+    if hf is not None:
+        from sklearn.base import clone
+        X_ext, y_ext, unseen = hf[2], hf[3], hf[4]
+        syn_only = clone(best).fit(X_syn_tr, y_syn_tr)
+        for key, model in [("external_hf", best), ("external_hf_synthetic_only", syn_only)]:
+            p_ext = model.predict(X_ext)
+            for part, mask in [("seen", ~unseen), ("unseen", unseen)]:
+                yt, yp = y_ext[mask], p_ext[mask]
+                test[f"{key}_{part}_macro_f1"] = f1_score(yt, yp, average="macro", labels=np.unique(yt))
+                test[f"{key}_{part}_accuracy"] = accuracy_score(yt, yp)
+        print(f"[{module}] EXTERNAL test on public dataset #1: seen merchants ({(~unseen).sum()} rows) macro F1 "
+              f"{test['external_hf_seen_macro_f1']:.3f} | UNSEEN merchants ({unseen.sum()} rows) macro F1 "
+              f"{test['external_hf_unseen_macro_f1']:.3f} (synthetic-only model: "
+              f"{test['external_hf_synthetic_only_unseen_macro_f1']:.3f})")
+        pd.DataFrame(classification_report(y_ext[unseen], best.predict(X_ext[unseen]), output_dict=True,
+                                           zero_division=0)).T.to_csv(RESULTS / "categorizer_external_hf_unseen_report.csv")
     pd.DataFrame(rows).to_csv(RESULTS / f"model_comparison_{module}.csv", index=False)
     entry = dict(algorithm=best_name, primary_metric="macro_f1", test_metrics=test, baseline_metrics=base_m,
                  confidence_threshold=threshold, n_train=len(X_tr), n_test=len(X_te))
@@ -300,7 +330,7 @@ def _categorizer_plots(best, X_tr, y_tr, y_te, y_hat, report, curve, threshold):
     plt.plot(curve["threshold"], curve["accuracy"], marker="o", label="accuracy of accepted")
     plt.plot(curve["threshold"], curve["coverage"], marker="s", label="coverage (share auto-accepted)")
     plt.axvline(threshold, ls="--", c="grey"); plt.xlabel("confidence threshold"); plt.legend()
-    plt.title("Confidence vs accuracy (validation, out-of-fold)")
+    plt.title("Confidence vs accuracy (validation: unseen merchants)")
     figs.append(savefig("categorizer_confidence_curve.png"))
     # top words per class from a linear model (interpretation only)
     lin = make_pipe(LogisticRegression(max_iter=2000, C=5), prep=F.categorizer_preprocessor()).fit(X_tr, y_tr)
@@ -312,26 +342,25 @@ def _categorizer_plots(best, X_tr, y_tr, y_te, y_hat, report, curve, threshold):
     return figs
 
 
-def _external_check(model):
-    """Optional: score on public dataset #1 (if downloaded) after mapping its categories."""
-    path = RAW / "hf_transactions.csv"
-    if not path.exists():
+def _hf_split():
+    """Public dataset #1 debits, cleaned and mapped to our taxonomy.
+    Rows of held-out merchants (never seen by the generator or training) -> external test, "unseen merchants".
+    Other rows: stratified 50/50 -> training / external test, "seen merchants".
+    Returns (X_train, y_train, X_ext, y_ext, unseen_mask) or None if the file is missing."""
+    hf = load_hf_labeled()
+    if hf is None:
+        print("[categorizer] public dataset #1 not found - training on synthetic data only")
         return None
-    ext = pd.read_csv(path)
-    cols = {c.lower(): c for c in ext.columns}
-    desc_c, cat_c = cols.get("description"), cols.get("category")
-    if not desc_c or not cat_c:
-        print("[categorizer] external dataset columns not recognised - skipped")
-        return None
-    amt_c, date_c = cols.get("amount"), cols.get("date")
-    e = pd.DataFrame({"user_id": "ext", "description": ext[desc_c],
-                      "amount": pd.to_numeric(ext[amt_c], errors="coerce") if amt_c else 100.0,
-                      "date": ext[date_c] if date_c else "2024-01-01", "type": "debit"})
-    e = clean_transactions(e, verbose=False)
-    y = map_external_categories(ext.loc[e.index], cat_c)
-    score = f1_score(y, model.predict(F.categorizer_frame(e)), average="macro")
-    print(f"[categorizer] external check on public dataset #1: macro F1 = {score:.3f}")
-    return score
+    hf = hf[hf["type"] == "debit"].reset_index(drop=True)
+    clean = clean_transactions(hf.assign(user_id="hf"), verbose=False)
+    X, y, hold = F.categorizer_frame(clean), clean["category"].to_numpy(), clean["holdout"].to_numpy()
+    X_seen, y_seen = X[~hold], y[~hold]
+    X_a, X_b, y_a, y_b = train_test_split(X_seen, y_seen, test_size=0.5, stratify=y_seen, random_state=SEED)
+    X_ext = pd.concat([X_b, X[hold]], ignore_index=True)
+    y_ext = np.concatenate([y_b, y[hold]])
+    unseen = np.r_[np.zeros(len(y_b), bool), np.ones(hold.sum(), bool)]
+    print(f"[categorizer] dataset #1 held-out merchants: {sorted(clean.loc[hold, 'merchant_raw'].unique())}")
+    return X_a.reset_index(drop=True), y_a, X_ext, y_ext, unseen
 
 
 # ====================================================================================== 4.2 subscriptions

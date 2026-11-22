@@ -9,6 +9,10 @@ venv/
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep
+# public datasets (committed so a clean clone reproduces the results; check their licences, see data/SOURCES.md)
+!data/raw/hf_transactions.csv
+!data/raw/upi_transactions_2024.csv
+!data/raw/credit_card_india.csv
 !data/processed/.gitkeep
 models/*
 !models/.gitkeep

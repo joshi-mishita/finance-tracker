@@ -1,8 +1,6 @@
 cluster,Debt-Heavy,Family Budgeter,Lifestyle Spender,Saver,Student/Early Career
-Debt-Heavy,39,0,1,0,0
-Family Budgeter,1,42,0,2,4
-Lifestyle Spender,0,0,46,0,1
-Moderate Saver,0,0,0,23,0
-Moderate Student / Early Career,6,3,0,1,8
-Saver,0,0,0,18,0
-Student / Early Career,2,2,2,4,35
+Debt-Heavy,44,0,1,0,1
+Family Budgeter,1,42,0,9,3
+Lifestyle Spender,0,0,44,0,0
+Saver,0,2,0,39,0
+Student / Early Career,3,3,4,0,44

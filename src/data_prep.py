@@ -90,6 +90,82 @@ EMPLOYERS = ["INFOSYS LTD", "TCS LTD", "WIPRO LTD", "HCL TECH", "ACCENTURE", "DE
 PEOPLE = ["RAHUL SHARMA", "PRIYA SINGH", "AMIT KUMAR", "SNEHA PATEL", "VIKRAM RAO", "ANJALI GUPTA",
           "ROHIT VERMA", "KAVYA NAIR", "ARJUN MEHTA", "NEHA JOSHI"]
 CITIES = ["MUMBAI", "BANGALORE", "DELHI", "PUNE", "HYDERABAD", "CHENNAI", "KOLKATA", "JAIPUR", "INDORE"]
+PUBLIC_FILES = {"hf_transactions": "hf_transactions.csv", "upi_2024": "upi_transactions_2024.csv",
+                "credit_card_india": "credit_card_india.csv"}
+
+# Public dataset #1 uses 7 coarse categories that sometimes disagree with our taxonomy (e.g. Blinkit = "Food",
+# Netflix = "Entertainment", Gym = "Health"), so it is mapped per merchant first, then per category.
+HF_MERCHANT_MAP = {
+    "Blinkit": "Groceries", "BigBasket": "Groceries", "Local Grocery": "Groceries",
+    "Netflix": "Subscriptions", "Prime Video": "Subscriptions", "Disney+ Hotstar": "Subscriptions",
+    "Spotify": "Subscriptions", "Gym Membership": "Personal Care",
+    "Parking Fee": "Transport", "Ola Cab": "Transport", "Uber Ride": "Transport", "Auto Rickshaw": "Transport",
+    "Shell Fuel": "Transport", "Petrol Pump": "Transport", "IndiGo Flight": "Travel", "IRCTC Ticket": "Travel",
+    "Monthly Salary": "Salary",
+}
+HF_CATEGORY_MAP = {"Food": "Food & Dining", "Shopping": "Shopping", "Bills": "Bills & Utilities",
+                   "Entertainment": "Entertainment", "Health": "Health", "Travel": "Travel", "Income": "Other Income"}
+# Public dataset #2 (UPI 2024) merchant_category -> our taxonomy
+UPI_CATEGORY_MAP = {"Grocery": "Groceries", "Food": "Food & Dining", "Shopping": "Shopping", "Fuel": "Transport",
+                    "Transport": "Transport", "Utilities": "Bills & Utilities", "Entertainment": "Entertainment",
+                    "Healthcare": "Health", "Education": "Education", "Other": "Others"}
+
+
+def _norm_merchant(name):
+    return re.sub(r"\s+", " ", re.sub(r"[^A-Z0-9 ]", " ", str(name).upper())).strip()
+
+
+_ORIGINAL_MERCHANTS = {m for ms in MERCHANTS.values() for m in ms}
+
+
+def _hf_raw():
+    path = RAW / PUBLIC_FILES["hf_transactions"]
+    if not path.exists():
+        return None
+    hf = pd.read_csv(path)
+    hf["merchant_raw"] = hf["description"].str.replace(r"\s*txn_\d+$", "", regex=True).str.strip()
+    return hf
+
+
+def hf_holdout_merchants():
+    """Half of dataset #1's merchants that are NEW to us (not in our own lists) are held out completely:
+    never added to the generator, never used for training. They give an honest unseen-merchant external test."""
+    hf = _hf_raw()
+    if hf is None:
+        return set()
+    new = sorted(m for m in hf["merchant_raw"].unique() if _norm_merchant(m) not in _ORIGINAL_MERCHANTS)
+    perm = np.random.default_rng(SEED).permutation(len(new))
+    return {new[i] for i in perm[: len(new) // 2]}
+
+
+def load_hf_labeled():
+    """Public dataset #1 in our schema (date, description, amount, type, category, merchant_raw, holdout). None if absent."""
+    hf = _hf_raw()
+    if hf is None:
+        return None
+    cat = hf["merchant_raw"].map(HF_MERCHANT_MAP).fillna(hf["category"].map(HF_CATEGORY_MAP)).fillna("Others")
+    hold = hf_holdout_merchants()
+    return pd.DataFrame({"date": pd.to_datetime(hf["date"]), "description": hf["description"],
+                         "amount": hf["amount"].abs(), "type": np.where(hf["category"] == "Income", "credit", "debit"),
+                         "category": cat, "merchant_raw": hf["merchant_raw"],
+                         "holdout": hf["merchant_raw"].isin(hold)})
+
+
+def _extend_merchants_from_hf():
+    """Add dataset #1's real merchant names (except the held-out half) to the generator's lists (deterministic)."""
+    hf = load_hf_labeled()
+    if hf is None:
+        return 0
+    added = 0
+    for m, c in sorted(set(zip(hf.loc[~hf["holdout"], "merchant_raw"], hf.loc[~hf["holdout"], "category"]))):
+        name = _norm_merchant(m)
+        if c in MERCHANTS and name not in MERCHANTS[c]:
+            MERCHANTS[c].append(name)
+            added += 1
+    return added
+
+
+N_HF_MERCHANTS = _extend_merchants_from_hf()
 KNOWN_MERCHANTS = sorted({m for ms in MERCHANTS.values() for m in ms} | {"SALARY"} | set(EMPLOYERS))
 MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
@@ -110,10 +186,8 @@ CATEGORY_MAP = {
 # --------------------------------------------------------------------------------------
 def load_public():
     """Load whichever public datasets are present in data/raw/. Returns dict name -> DataFrame."""
-    files = {"hf_transactions": "hf_transactions.csv", "upi_2024": "upi_transactions_2024.csv",
-             "credit_card_india": "credit_card_india.csv"}
     out = {}
-    for name, fname in files.items():
+    for name, fname in PUBLIC_FILES.items():
         path = RAW / fname
         if not path.exists():
             print(f"[load_public] {fname} not found in data/raw/ - skipping (see data/SOURCES.md)")
@@ -122,6 +196,25 @@ def load_public():
         print(f"[load_public] {fname}: {df.shape}, columns={list(df.columns)}")
         out[name] = df
     return out
+
+
+def upi_calibration():
+    """Ticket-size distribution and weekend ratio per category from public dataset #2 (successful UPI payments).
+    Returns DataFrame indexed by our category with median, log_sd, mean_ticket, weekend_ratio; None if absent."""
+    path = RAW / PUBLIC_FILES["upi_2024"]
+    if not path.exists():
+        return None
+    u = pd.read_csv(path, usecols=["merchant_category", "amount (INR)", "transaction_status", "is_weekend"])
+    u = u[(u["transaction_status"] == "SUCCESS") & (u["amount (INR)"] > 0)]
+    u["category"] = u["merchant_category"].map(UPI_CATEGORY_MAP)
+    rows = {}
+    for c, g in u.dropna(subset=["category"]).groupby("category"):
+        amt = g["amount (INR)"].astype(float)
+        we = g["is_weekend"].astype(bool)
+        log_sd = float(np.log(amt).std())
+        rows[c] = dict(median=float(amt.median()), log_sd=log_sd, mean_ticket=float(amt.median() * np.exp(log_sd ** 2 / 2)),
+                       weekend_ratio=float((we.sum() / 2) / max((~we).sum() / 5, 1)), n=len(g))
+    return pd.DataFrame(rows).T
 
 
 def map_external_categories(df, col):
@@ -248,6 +341,14 @@ def generate_data(n_users=300, months=24, seed=SEED, start="2024-11-01"):
     """Generate users, transactions and recurring labels. Returns (users, transactions, labels)."""
     rng = np.random.default_rng(seed)
     start = pd.Timestamp(start)
+    calib = upi_calibration()
+    if calib is not None:
+        print(f"[generate] ticket sizes and weekend pattern calibrated from UPI 2024 for {list(calib.index)}")
+        PROCESSED.mkdir(parents=True, exist_ok=True)
+        calib.round(4).to_csv(PROCESSED / "upi_calibration.csv")
+    if N_HF_MERCHANTS:
+        print(f"[generate] {N_HF_MERCHANTS} merchant names added from public dataset #1 "
+              f"({len(hf_holdout_merchants())} new merchants held out for the external test)")
     base = pd.Series(HCES_URBAN_SHARES)
     base = base / base.sum()
     users, rows, labels = [], [], []
@@ -342,14 +443,20 @@ def generate_data(n_users=300, months=24, seed=SEED, start="2024-11-01"):
                     continue
                 if cat == "Rent":
                     b *= 0.3  # no rent stream (owns home): small maintenance payments only
-                if cat in ("Food & Dining", "Entertainment", "Shopping", "Travel"):
-                    dw = np.array([1.9 if (mstart + pd.Timedelta(days=i)).dayofweek >= 5 else 1.0 for i in range(ndays)])
-                else:
-                    dw = np.ones(ndays)
+                # weekend pattern: from UPI 2024 when available (it shows ~no weekend effect), else uniform
+                wr = float(calib.loc[cat, "weekend_ratio"]) if calib is not None and cat in calib.index else 1.0
+                dw = np.array([wr if (mstart + pd.Timedelta(days=i)).dayofweek >= 5 else 1.0 for i in range(ndays)])
                 dw = dw / dw.sum()
-                n = {"Food & Dining": 10, "Groceries": 8, "Transport": 9, "Shopping": 3, "Others": 3}.get(cat, 2)
-                n = max(1, int(rng.poisson(n)))
-                parts = rng.dirichlet(np.ones(n)) * b
+                if calib is not None and cat in calib.index:
+                    # number of payments and their spread follow the real UPI ticket-size distribution
+                    c = calib.loc[cat]
+                    n = int(np.clip(rng.poisson(max(b / c["mean_ticket"], 1)), 1, 35))
+                    draws = rng.lognormal(np.log(c["median"]), c["log_sd"], n)
+                    parts = draws * b / draws.sum()
+                else:
+                    n = {"Food & Dining": 10, "Groceries": 8, "Transport": 9, "Shopping": 3, "Others": 3}.get(cat, 2)
+                    n = max(1, int(rng.poisson(n)))
+                    parts = rng.dirichlet(np.ones(n)) * b
                 for amt in parts:
                     if amt < 20:
                         continue
@@ -395,7 +502,7 @@ def validate_generated(users, tx, labels, target_shares):
 # --------------------------------------------------------------------------------------
 _MODE_PATTERNS = [("UPI", r"\bupi\b|^upi|upi[/-]"), ("NEFT", r"\bneft\b"), ("IMPS", r"\bimps\b"),
                   ("ACH", r"\bn?ach\b"), ("POS", r"\bpos\b"), ("ATM", r"\batm\b"), ("CARD", r"\*order|\becom\b")]
-_STOP = {"upi", "neft", "imps", "pos", "ach", "nach", "d", "dr", "cr", "p2m", "payment", "order", "ecom", "paid",
+_STOP = {"txn", "upi", "neft", "imps", "pos", "ach", "nach", "d", "dr", "cr", "p2m", "payment", "order", "ecom", "paid",
          "wdl", "received"}
 _PAYEES = KNOWN_MERCHANTS + PEOPLE  # known merchants + payee names (so "NEHAJOSHI" and "NEHA JOSHI" match)
 _KNOWN_LOWER = {m.lower(): m for m in _PAYEES}
