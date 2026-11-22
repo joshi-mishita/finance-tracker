@@ -11,18 +11,18 @@ with an MLOps setup of MLflow tracking, versioned model files and Docker.
 
 ## Screenshots
 
-| Sign in | Dashboard |
+| Sign in | Overview |
 |---|---|
-| ![Sign in](docs/screenshots/auth.png) | ![Dashboard](docs/screenshots/dashboard.png) |
-| **Transactions** | **Subscriptions** |
-| ![Transactions](docs/screenshots/transactions.png) | ![Subscriptions](docs/screenshots/subscriptions.png) |
-| **Forecast and budget** | **Insights** |
-| ![Forecast](docs/screenshots/forecast.png) | ![Insights](docs/screenshots/insights.png) |
+| ![Sign in](docs/screenshots/auth.png) | ![Overview](docs/screenshots/dashboard.png) |
+| **Goals and budgets** | **Rewards** |
+| ![Goals](docs/screenshots/goals.png) | ![Rewards](docs/screenshots/rewards.png) |
+| **Transactions** | **Forecast** |
+| ![Transactions](docs/screenshots/transactions.png) | ![Forecast](docs/screenshots/forecast.png) |
 
-The interface uses a passbook-inspired design with product-style top navigation and a user menu: ink-blue and
-cheque-paper colours, a ruled "ledger strip" for key figures
-(green for money in, red for money out), and bundled open-source fonts (Bricolage Grotesque and IBM Plex Sans,
-SIL Open Font License, in `static/fonts/`), so it looks the same offline and in Docker.
+The interface is a dark, gamified design: neon lime with pink, cyan, purple and yellow accents, a lime hero card,
+segmented progress rings and a level card in the sidebar. Fonts are bundled (Archivo Black for titles, Poppins for text
+and amounts because it includes the ₹ sign; SIL Open Font License, in `static/fonts/`), so the app looks the same offline
+and in Docker.
 
 ## Project website
 
@@ -45,7 +45,8 @@ A product landing page for the project lives in [`docs/index.html`](docs/index.h
 | | Weekend vs weekday **hypothesis test** (Mann-Whitney U), fastest-growing categories, top merchants | Statistics |
 | | **Unusual transaction alerts** (Q3 + 3×IQR rule per category) | Statistics |
 | App | Sign-up / sign-in with salted PBKDF2-SHA256 password hashes | Non-ML |
-| | Dashboard, goals with feasibility, CSV / bank-statement import | Non-ML |
+| | Overview, goals with milestones and budget rings, CSV / bank-statement import | Non-ML |
+| | **Rewards:** XP, levels, saving streaks and 8 badges, all computed from the user's real activity (saving months, corrections, confirmed subscriptions, goals) | Gamification |
 | | Admin page: model versions, test metrics vs baseline, comparison tables, plots, user-feedback stats | MLOps |
 
 **Imbalanced data → SMOTE.** Both classifiers face imbalanced classes (categorizer: 11.6 : 1 between the largest and
@@ -59,7 +60,7 @@ detector it gave the best CV F1 by a margin smaller than the noise, so a faster 
 
 ```
 finance-tracker/
-├── app.py                  # Streamlit app: sign-in page + 7 pages (top navigation), one function per page
+├── app.py                  # Streamlit app: sign-in page + 8 pages (sidebar navigation), one function per page
 ├── docs/                   # project website (GitHub Pages) + screenshots
 ├── static/fonts/           # bundled fonts (OFL), served by Streamlit static serving
 ├── src/
@@ -91,8 +92,8 @@ and fail with `No module named 'imblearn'`.
 **macOS (Apple Silicon):** run `brew install libomp` first (needed by XGBoost and LightGBM). Port 5000 is used by AirPlay
 Receiver, so run MLflow on 5001 and start the app with `MLFLOW_UI_URL=http://localhost:5001 python -m streamlit run app.py`.
 
-In the app, open **Create account** (name, username, monthly income, password). Then open the menu with your name
-(top right) and click **Load demo data** to fill every page with 24 months of a generated user's history. Next time,
+In the app, open **Create account** (name, username, monthly income, password). Then click **Load demo data** (or open
+**Account** at the bottom of the sidebar) to fill every page with 24 months of a generated user's history. Next time,
 use **Sign in**.
 
 ### Docker

@@ -534,3 +534,62 @@ def recurring_share(tx, subs):
         return 0.0
     clean = _to_clean(d[["date", "description", "amount", "type"]])
     return float(clean.loc[clean["merchant"].isin(subs["merchant"]), "amount"].sum() / clean["amount"].sum())
+
+
+# ====================================================================================== gamification
+# Everything below is computed from the user's own data; nothing is awarded at random.
+LEVELS = [("Saving Rookie", 0), ("Budget Builder", 250), ("Money Mindful", 600), ("Savings Pro", 1200),
+          ("Finance Master", 2500)]
+XP_RULES = {"saving_month": 25, "correction": 10, "confirmed_sub": 15, "goal": 30, "goal_reached": 100}
+
+
+def monthly_savings(tx):
+    """Savings per complete calendar month (income - expenses, investments count as savings)."""
+    t = _complete_months(tx)
+    if t.empty:
+        return pd.Series(dtype=float)
+    m = t.assign(month=t["date"].dt.to_period("M"))
+    inc = m[m["type"] == "credit"].groupby("month")["amount"].sum()
+    exp = m[(m["type"] == "debit") & ~m["category"].isin(NON_EXPENSE)].groupby("month")["amount"].sum()
+    return inc.sub(exp, fill_value=0).sort_index()
+
+
+def gamification(username):
+    tx = load_transactions(username)
+    subs = get_subscriptions(username, include_dismissed=True)
+    goals = get_goals(username)
+    ms = monthly_savings(tx)
+    positive = int((ms > 0).sum())
+    streak = 0
+    for v in ms[::-1]:
+        if v > 0:
+            streak += 1
+        else:
+            break
+    corrections = int(tx["user_corrected"].sum()) if "user_corrected" in tx else 0
+    confirmed = int((subs["status"] == "confirmed").sum()) if not subs.empty else 0
+    reached = int((goals["saved_amount"] >= goals["target_amount"]).sum()) if not goals.empty else 0
+    parts = {"Months with positive savings": positive * XP_RULES["saving_month"],
+             "Categories you corrected": corrections * XP_RULES["correction"],
+             "Subscriptions confirmed": confirmed * XP_RULES["confirmed_sub"],
+             "Goals created": len(goals) * XP_RULES["goal"],
+             "Goals reached": reached * XP_RULES["goal_reached"]}
+    xp = int(sum(parts.values()))
+    idx = max(i for i, (_, need) in enumerate(LEVELS) if xp >= need)
+    level, floor = LEVELS[idx]
+    nxt = LEVELS[idx + 1] if idx + 1 < len(LEVELS) else None
+    inc = tx[tx["type"] == "credit"]
+    rate_months = ms / inc.assign(month=inc["date"].dt.to_period("M")).groupby("month")["amount"].sum().reindex(ms.index)
+    badges = [
+        ("First goal", "Create a savings goal", len(goals) > 0),
+        ("Goal getter", "Reach a savings goal", reached > 0),
+        ("20% club", "Save 20% of income in a month", bool((rate_months >= 0.20).any()) if len(ms) else False),
+        ("Three in a row", "Save money 3 months running", streak >= 3),
+        ("Subscription sleuth", "Confirm a detected subscription", confirmed > 0),
+        ("Teacher", "Correct 5 categories to train the model", corrections >= 5),
+        ("Clean ledger", "No transactions waiting for review", (not tx.empty) and int(tx["needs_review"].sum()) == 0),
+        ("Investor", "Make an investment payment", bool(tx["category"].isin(NON_EXPENSE).any()) if not tx.empty else False),
+    ]
+    return dict(xp=xp, level=level, level_index=idx + 1, n_levels=len(LEVELS), floor=floor,
+                next_level=nxt[0] if nxt else None, next_xp=nxt[1] if nxt else xp, streak=streak, parts=parts,
+                badges=badges, unlocked=sum(b[2] for b in badges), monthly=ms)

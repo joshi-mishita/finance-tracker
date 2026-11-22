@@ -1,14 +1,14 @@
 [theme]
-base = "light"
-primaryColor = "#16233F"
-backgroundColor = "#F2F5F0"
-secondaryBackgroundColor = "#F4F6F2"
-textColor = "#1B2433"
+base = "dark"
+primaryColor = "#8CF542"
+backgroundColor = "#0B0E0A"
+secondaryBackgroundColor = "#161C14"
+textColor = "#EEF4E8"
 font = "sans serif"
 
 [server]
 headless = true
-enableStaticServing = true   # serves ./static (bundled fonts)
+enableStaticServing = true   # serves ./static (bundled fonts, logo)
 
 [client]
 toolbarMode = "minimal"
